@@ -4,6 +4,7 @@ services:
   timescaledb:
     image: timescale/timescaledb:latest-pg15
     environment:
+      POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${DB_PASSWORD}
       POSTGRES_DB: market_data
     ports:
