@@ -1,0 +1,30 @@
+[Unit]
+Description=Market Data API (TimescaleDB + FastAPI)
+Documentation=file:///opt/market-data-api/README.md
+After=docker.service network-online.target
+Requires=docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/market-data-api
+ExecStart=/opt/market-data-api/docker-start.sh up
+ExecStop=/opt/market-data-api/docker-start.sh down
+
+# Keep service active after one-shot completion
+RemainAfterExit=yes
+
+# Auto-restart on failure
+Restart=always
+RestartSec=10
+
+# Run as unprivileged user (docker group required)
+User=market-data
+Group=docker
+
+# Security
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
