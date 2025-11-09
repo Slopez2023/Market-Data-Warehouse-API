@@ -237,6 +237,49 @@
 
 ---
 
+## 📅 Week 5: Production Deployment & Monitoring (Current)
+
+### Day 1-2: VM Preparation & Docker Setup
+- [ ] Proxmox VM with Debian 12
+- [ ] Docker & Docker Compose installed
+- [ ] Network connectivity verified
+- [ ] SSH access working
+
+### Day 3: Application Deployment
+- [ ] Repository cloned to `/opt/market-data-api`
+- [ ] Environment configured (`.env` with API keys)
+- [ ] Docker image built
+- [ ] Services started (timescaledb + api)
+- [ ] Health endpoint responding
+
+### Day 4: Initial Data Load
+- [ ] Backfill completes (15+ symbols)
+- [ ] Database contains 15,000+ candles
+- [ ] Validation rate ≥95%
+- [ ] All endpoints responding
+
+### Day 5: Systemd Service Setup
+- [ ] Service file installed
+- [ ] Service starts without errors
+- [ ] Auto-start on reboot enabled
+- [ ] Logs showing scheduler running
+
+### Day 6: Monitoring & Verification
+- [ ] Monitoring scripts created and configured
+- [ ] Cron jobs scheduled for periodic checks
+- [ ] Manual health checks passing
+- [ ] System resources healthy
+
+### Day 7: Backup & Auto-Backfill Verification
+- [ ] Backup script runs successfully
+- [ ] Weekly backup cron scheduled
+- [ ] Auto-backfill scheduler confirmed
+- [ ] All production readiness checks passing
+
+**Status:** 🚀 **WEEK 5 IN PROGRESS** - Deployment phase started
+
+---
+
 ## 📝 Notes
 
 - **API Key:** Polygon.io ($29.99/mo)
