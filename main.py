@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from src.config import config
-from src.scheduler import AutoBackfillScheduler
+from src.scheduler import AutoBackfillScheduler, get_last_backfill_result, get_last_backfill_time
 from src.services.database_service import DatabaseService
 from src.models import HealthResponse, StatusResponse
 
@@ -215,6 +215,52 @@ async def list_symbols():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/v1/metrics")
+async def get_metrics():
+    """
+    Monitoring endpoint - scheduler health and system metrics.
+    
+    Returns:
+    - Scheduler status (running/stopped)
+    - Last backfill time and results
+    - Database metrics
+    - System health summary
+    """
+    try:
+        backfill_result = get_last_backfill_result()
+        backfill_time = get_last_backfill_time()
+        metrics = db.get_status_metrics()
+        
+        return {
+            "timestamp": datetime.utcnow().isoformat(),
+            "scheduler": {
+                "running": scheduler.scheduler.running,
+                "schedule": f"{config.backfill_schedule_hour:02d}:{config.backfill_schedule_minute:02d} UTC daily"
+            },
+            "last_backfill": {
+                "time": backfill_time.isoformat() if backfill_time else None,
+                "successful_symbols": backfill_result.get("success") if backfill_result else None,
+                "failed_symbols": backfill_result.get("failed") if backfill_result else None,
+                "total_records_imported": backfill_result.get("total_records") if backfill_result else None
+            },
+            "database": {
+                "symbols_available": metrics.get("symbols_available", 0),
+                "total_records": metrics.get("total_records", 0),
+                "validated_records": metrics.get("validated_records", 0),
+                "validation_rate_pct": metrics.get("validation_rate_pct", 0),
+                "latest_data": metrics.get("latest_data")
+            },
+            "health": {
+                "api": "healthy" if scheduler.scheduler.running else "degraded",
+                "database": "healthy" if metrics.get("total_records", 0) > 0 else "no_data"
+            }
+        }
+    
+    except Exception as e:
+        logger.error(f"Metrics endpoint error: {e}")
+        raise HTTPException(status_code=500, detail=f"Metrics query failed: {str(e)}")
+
+
 @app.on_event("startup")
 async def startup_event():
     """Additional startup tasks if needed"""
@@ -241,7 +287,8 @@ async def root():
             "health": "/health",
             "status": "/api/v1/status",
             "historical": "/api/v1/historical/{symbol}",
-            "symbols": "/api/v1/symbols"
+            "symbols": "/api/v1/symbols",
+            "metrics": "/api/v1/metrics"
         }
     }
 
