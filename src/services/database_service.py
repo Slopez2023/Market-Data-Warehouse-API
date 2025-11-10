@@ -157,10 +157,12 @@ class DatabaseService:
         try:
             # Build WHERE clause conditions
             conditions = [
-                "symbol = :symbol",
-                "time >= :start_date::timestamp",
-                "time < :end_date::timestamp + INTERVAL '1 day'"
+                "symbol = %s",
+                "time >= %s::timestamp",
+                "time < %s::timestamp + INTERVAL '1 day'"
             ]
+            
+            query_params = [symbol, start, end]
             
             if validated_only:
                 conditions.append("validated = TRUE")
@@ -180,14 +182,12 @@ class DatabaseService:
                 ORDER BY time ASC
             """
             
-            query = text(sql)
-            
-            result = session.execute(query, {
-                'symbol': symbol,
-                'start_date': start,
-                'end_date': end
-            })
-            rows = result.fetchall()
+            # Use raw SQL execute with psycopg2 style parameters
+            conn = session.connection().connection
+            cursor = conn.cursor()
+            cursor.execute(sql, query_params)
+            rows = cursor.fetchall()
+            cursor.close()
             
             # Convert to list of dicts
             data = []

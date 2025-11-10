@@ -16,6 +16,7 @@ EXPOSE 8000
 ENV API_HOST=0.0.0.0
 ENV API_PORT=8000
 ENV LOG_LEVEL=INFO
+ENV PYTHONPATH=/app
 
 # Health check
 HEALTHCHECK --interval=10s --timeout=5s --start-period=5s --retries=3 \

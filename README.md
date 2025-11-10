@@ -8,30 +8,27 @@ A comprehensive market data API serving stocks and cryptocurrency data from Poly
 
 ## Quick Start
 
-Get up and running in 5 minutes:
+Get up and running in 5 minutes with Docker Compose:
 
 ```bash
 # 1. Clone and setup
 git clone <repo>
 cd MarketDataAPI
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
 
-# 2. Install dependencies
-pip install -r requirements.txt
+# 2. Configure environment
+cp .env.example .env
+# Edit .env with your POLYGON_API_KEY and DB_PASSWORD
 
-# 3. Configure environment
-export DATABASE_URL="postgresql://user:pass@localhost:5432/marketdata"
-export POLYGON_API_KEY="your_api_key"
-
-# 4. Start the application
-python main.py
+# 3. Start all services (PostgreSQL, API, Dashboard)
+docker-compose up
 ```
 
-API available at: `http://localhost:8000`  
-Dashboard available at: `http://localhost:3000`
+**Services available at:**
+- **API**: `http://localhost:8000`
+- **Dashboard**: `http://localhost:3001`
+- **Database**: `localhost:5432`
 
-For detailed setup, see [Installation Guide](/docs/getting-started/INSTALLATION.md)
+All services are managed together via Docker Compose. See [Installation Guide](/docs/getting-started/INSTALLATION.md) for detailed setup.
 
 ---
 

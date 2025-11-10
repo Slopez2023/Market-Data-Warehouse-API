@@ -19,9 +19,9 @@ const CONFIG = {
 function getAPIBase() {
   // Check URL parameter first (for reverse proxy scenarios)
   const params = new URLSearchParams(window.location.search);
-  const customBase = params.get('api_base');
+  const customBase = params.get("api_base");
   if (customBase) return customBase;
-  
+
   // Use current origin if on same host
   return window.location.origin;
 }
@@ -59,9 +59,13 @@ async function refreshDashboard() {
     const startTime = performance.now();
 
     const healthResponse = await fetch(`${CONFIG.API_BASE}/health`);
+    if (!healthResponse.ok)
+      throw new Error(`Health endpoint returned ${healthResponse.status}`);
     const health = await healthResponse.json();
 
     const statusResponse = await fetch(`${CONFIG.API_BASE}/api/v1/status`);
+    if (!statusResponse.ok)
+      throw new Error(`Status endpoint returned ${statusResponse.status}`);
     const status = await statusResponse.json();
 
     const duration = performance.now() - startTime;
@@ -111,11 +115,17 @@ function updateStatus(status) {
 
   updateMetric("symbols-count", db.symbols_available || 0, "");
   updateMetric("total-records", formatNumber(db.total_records || 0), "");
-  updateMetric("validation-rate", `${(db.validation_rate_pct || 0).toFixed(1)}`, "%");
+  updateMetric(
+    "validation-rate",
+    `${(db.validation_rate_pct || 0).toFixed(1)}`,
+    "%"
+  );
   updateMetric("latest-data", formatDate(db.latest_data) || "---", "");
   updateMetric(
     "scheduler-status",
-    status.data_quality?.scheduler_status === "running" ? "🟢 Running" : "⚫ Stopped",
+    status.data_quality?.scheduler_status === "running"
+      ? "🟢 Running"
+      : "⚫ Stopped",
     ""
   );
 
@@ -134,7 +144,11 @@ function updateDashboard(status) {
   updateMetric("db-size", `${estimatedMB} MB`, "");
 
   updateMetric("data-age", calculateAge(db.latest_data), "");
-  updateMetric("gap-count", formatNumber(status.data_quality?.records_with_gaps_flagged || 0), "");
+  updateMetric(
+    "gap-count",
+    formatNumber(status.data_quality?.records_with_gaps_flagged || 0),
+    ""
+  );
 }
 
 /**
@@ -208,7 +222,8 @@ async function updateSymbolGrid(status) {
     const symbolCount = status.database?.symbols_available || 0;
 
     if (symbolCount === 0) {
-      container.innerHTML = '<p style="grid-column: 1/-1; color: var(--text-secondary);">No symbols in database</p>';
+      container.innerHTML =
+        '<p style="grid-column: 1/-1; color: var(--text-secondary);">No symbols in database</p>';
       return;
     }
 
@@ -240,7 +255,8 @@ async function updateSymbolGrid(status) {
     });
   } catch (error) {
     console.warn("Could not load symbols:", error);
-    container.innerHTML = '<p style="grid-column: 1/-1; color: var(--text-secondary);">Symbol data unavailable</p>';
+    container.innerHTML =
+      '<p style="grid-column: 1/-1; color: var(--text-secondary);">Symbol data unavailable</p>';
   }
 }
 
@@ -300,7 +316,9 @@ function updateTimestamp() {
     second: "2-digit",
     hour12: false,
   });
-  document.getElementById("last-update").textContent = `Last updated: ${timeStr} UTC`;
+  document.getElementById(
+    "last-update"
+  ).textContent = `Last updated: ${timeStr} UTC`;
 }
 
 /**
@@ -311,7 +329,9 @@ function handleError(error) {
   const errorMsg = error.message || "Unknown error";
 
   const willRetry = state.retries < CONFIG.MAX_RETRIES;
-  const retryMsg = willRetry ? ` (Retrying... ${state.retries + 1}/${CONFIG.MAX_RETRIES})` : " (Max retries exceeded)";
+  const retryMsg = willRetry
+    ? ` (Retrying... ${state.retries + 1}/${CONFIG.MAX_RETRIES})`
+    : " (Max retries exceeded)";
 
   alertsContainer.innerHTML = `
         <div class="alert critical">
@@ -370,6 +390,8 @@ function viewSymbolData(symbol) {
 async function testHealth() {
   try {
     const response = await fetch(`${CONFIG.API_BASE}/health`);
+    if (!response.ok)
+      throw new Error(`Health endpoint returned ${response.status}`);
     const data = await response.json();
     alert(
       `✓ Health Check Passed\n\nStatus: ${data.status}\nScheduler: ${

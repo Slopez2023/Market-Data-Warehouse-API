@@ -1,29 +1,35 @@
 version: '3.9'
 
 services:
-  postgres:
+  # PostgreSQL Database
+  database:
     image: postgres:15-alpine
-    container_name: market_data_db
+    container_name: market_data_postgres
     environment:
-      POSTGRES_USER: market_data_user
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-change_me_in_production}
+      POSTGRES_USER: market_user
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-password}
       POSTGRES_DB: market_data
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./database/sql/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./database/migrations:/docker-entrypoint-initdb.d/migrations:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U market_data_user"]
+      test: ["CMD-SHELL", "pg_isready -U market_user"]
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - market_network
 
+  # FastAPI Backend
   api:
     build: .
     container_name: market_data_api
     environment:
-      DATABASE_URL: postgresql://market_data_user:${DB_PASSWORD:-change_me_in_production}@postgres:5432/market_data
-      POLYGON_API_KEY: ${POLYGON_API_KEY:?Set POLYGON_API_KEY in .env}
+      DATABASE_URL: postgresql://market_user:${DB_PASSWORD:-password}@database:5432/market_data
+      POLYGON_API_KEY: ${POLYGON_API_KEY:?missing-api-key}
       API_HOST: 0.0.0.0
       API_PORT: 8000
       API_WORKERS: 4
@@ -33,17 +39,43 @@ services:
     ports:
       - "8000:8000"
     depends_on:
-      postgres:
+      database:
         condition: service_healthy
     volumes:
       - ./src:/app/src
       - ./dashboard:/app/dashboard
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD-SHELL", "python -c \"import requests; requests.get('http://localhost:8000/health')\" || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 3
-    command: python main.py
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4
+    networks:
+      - market_network
+
+  # Nginx Dashboard
+  dashboard:
+    image: nginx:alpine
+    container_name: market_data_dashboard
+    ports:
+      - "3001:80"
+    volumes:
+      - ./dashboard:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - api
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - market_network
 
 volumes:
   postgres_data:
+    driver: local
+
+networks:
+  market_network:
+    driver: bridge
