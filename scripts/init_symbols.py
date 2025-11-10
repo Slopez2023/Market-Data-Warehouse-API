@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """
-Initialize database with default symbols (stocks + crypto).
+Initialize database with default trading symbols (stocks, crypto, ETFs).
 
 Usage:
     python scripts/init_symbols.py
     
 This will:
 1. Create the tracked_symbols table
-2. Insert default 30 symbols (15 stocks + 15 crypto)
+2. Insert default 60 symbols (20 stocks + 20 crypto + 20 ETFs)
 3. Skip any that already exist
+
+Execution time: ~3-5 seconds
 """
 
 import asyncio
@@ -20,41 +22,73 @@ from src.services.structured_logging import StructuredLogger
 
 logger = StructuredLogger(__name__)
 
-# Default symbols: 15 major stocks + 15 major crypto
+# Default symbols: Stocks, Crypto, ETFs (all supported by Polygon.io)
 DEFAULT_SYMBOLS = [
-    # Stocks
-    ("AAPL", "stock"),
-    ("MSFT", "stock"),
-    ("GOOGL", "stock"),
-    ("AMZN", "stock"),
-    ("NVDA", "stock"),
-    ("TSLA", "stock"),
-    ("META", "stock"),
-    ("NFLX", "stock"),
-    ("AMD", "stock"),
-    ("INTC", "stock"),
-    ("PYPL", "stock"),
-    ("SQ", "stock"),
-    ("ROKU", "stock"),
-    ("MSTR", "stock"),
-    ("SOFI", "stock"),
+    # US Stocks (20)
+    ("AAPL", "stock"),        # Apple
+    ("MSFT", "stock"),        # Microsoft
+    ("GOOGL", "stock"),       # Alphabet
+    ("AMZN", "stock"),        # Amazon
+    ("META", "stock"),        # Meta Platforms
+    ("NVDA", "stock"),        # NVIDIA
+    ("TSLA", "stock"),        # Tesla
+    ("AMD", "stock"),         # Advanced Micro Devices
+    ("NFLX", "stock"),        # Netflix
+    ("BRK.B", "stock"),       # Berkshire Hathaway
+    ("JPM", "stock"),         # JPMorgan Chase
+    ("V", "stock"),           # Visa
+    ("XOM", "stock"),         # ExxonMobil
+    ("PG", "stock"),          # Procter & Gamble
+    ("KO", "stock"),          # Coca-Cola
+    ("PEP", "stock"),         # PepsiCo
+    ("COST", "stock"),        # Costco
+    ("INTC", "stock"),        # Intel
+    ("BA", "stock"),          # Boeing
+    ("DIS", "stock"),         # Disney
     
-    # Crypto
-    ("BTC", "crypto"),
-    ("ETH", "crypto"),
-    ("BNB", "crypto"),
-    ("SOL", "crypto"),
-    ("XRP", "crypto"),
-    ("ADA", "crypto"),
-    ("DOGE", "crypto"),
-    ("AVAX", "crypto"),
-    ("MATIC", "crypto"),
-    ("LINK", "crypto"),
-    ("LTC", "crypto"),
-    ("UNI", "crypto"),
-    ("ARB", "crypto"),
-    ("OP", "crypto"),
-    ("PEPE", "crypto"),
+    # Crypto (20)
+    ("BTC-USD", "crypto"),    # Bitcoin
+    ("ETH-USD", "crypto"),    # Ethereum
+    ("BNB-USD", "crypto"),    # Binance Coin
+    ("SOL-USD", "crypto"),    # Solana
+    ("XRP-USD", "crypto"),    # Ripple
+    ("ADA-USD", "crypto"),    # Cardano
+    ("AVAX-USD", "crypto"),   # Avalanche
+    ("DOT-USD", "crypto"),    # Polkadot
+    ("MATIC-USD", "crypto"),  # Polygon
+    ("ATOM-USD", "crypto"),   # Cosmos
+    ("DOGE-USD", "crypto"),   # Dogecoin
+    ("SHIB-USD", "crypto"),   # Shiba Inu
+    ("LINK-USD", "crypto"),   # Chainlink
+    ("AAVE-USD", "crypto"),   # Aave
+    ("UNI-USD", "crypto"),    # Uniswap
+    ("OP-USD", "crypto"),     # Optimism
+    ("ARB-USD", "crypto"),    # Arbitrum
+    ("INJ-USD", "crypto"),    # Injective
+    ("LTC-USD", "crypto"),    # Litecoin
+    ("NEAR-USD", "crypto"),   # NEAR Protocol
+    
+    # ETFs (20)
+    ("SPY", "etf"),           # S&P 500 ETF
+    ("QQQ", "etf"),           # Nasdaq 100 ETF
+    ("DIA", "etf"),           # Dow Jones ETF
+    ("IWM", "etf"),           # Russell 2000 ETF
+    ("VIX", "etf"),           # Volatility Index
+    ("TLT", "etf"),           # 20+ Year Treasury ETF
+    ("XLK", "etf"),           # Tech Sector ETF
+    ("XLF", "etf"),           # Financial Sector ETF
+    ("EEM", "etf"),           # Emerging Markets ETF
+    ("ARKK", "etf"),          # Innovation ETF
+    ("GLD", "etf"),           # Gold ETF
+    ("SLV", "etf"),           # Silver ETF
+    ("XLE", "etf"),           # Energy Sector ETF
+    ("XLV", "etf"),           # Healthcare Sector ETF
+    ("XLI", "etf"),           # Industrials Sector ETF
+    ("XLP", "etf"),           # Consumer Staples ETF
+    ("XLY", "etf"),           # Consumer Discretionary ETF
+    ("XLRE", "etf"),          # Real Estate ETF
+    ("XLU", "etf"),           # Utilities Sector ETF
+    ("SCHB", "etf"),          # Broad Market ETF
 ]
 
 
