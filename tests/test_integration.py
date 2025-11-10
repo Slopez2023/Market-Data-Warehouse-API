@@ -84,7 +84,7 @@ class TestPolygonIntegration:
 
 @pytest.mark.integration
 class TestValidationQuality:
-     """Test validation quality scoring on real data"""
+    """Test validation quality scoring on real data"""
     
     @pytest.mark.asyncio
     async def test_validation_quality_distribution(self, polygon_client, validation_service):
@@ -117,7 +117,7 @@ class TestValidationQuality:
 
 @pytest.mark.integration
 class TestDataConsistency:
-     """Test data consistency between sources"""
+    """Test data consistency between sources"""
     
     @pytest.mark.asyncio
     async def test_polygon_data_format(self, polygon_client):
