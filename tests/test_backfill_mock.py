@@ -12,6 +12,7 @@ from src.services.validation_service import ValidationService
 load_dotenv()
 
 
+@pytest.mark.integration
 class MockBackfillSimulator:
     """Simulates backfill logic without database"""
     
@@ -116,6 +117,7 @@ def backfill_sim():
     return MockBackfillSimulator()
 
 
+@pytest.mark.integration
 class TestBackfillSimulation:
     """Test backfill pipeline with real Polygon data"""
     

@@ -3,7 +3,8 @@
 import asyncio
 import logging
 from datetime import datetime, timedelta
-from typing import List
+from typing import List, Optional, Dict
+from decimal import Decimal
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
@@ -12,6 +13,10 @@ from src.services.validation_service import ValidationService
 from src.services.database_service import DatabaseService
 
 logger = logging.getLogger(__name__)
+
+# Track backfill results for monitoring
+_last_backfill_result: Optional[Dict] = None
+_last_backfill_time: Optional[datetime] = None
 
 
 class AutoBackfillScheduler:
@@ -22,7 +27,7 @@ class AutoBackfillScheduler:
     1. Fetch latest OHLCV for configured symbols
     2. Validate candles
     3. Insert/update in database
-    4. Log results
+    4. Log results with automatic retry on failures
     """
     
     def __init__(
@@ -90,22 +95,29 @@ class AutoBackfillScheduler:
         
         Fetches latest OHLCV for each symbol and validates.
         """
+        global _last_backfill_result, _last_backfill_time
+        
         logger.info(f"Starting backfill job for {len(self.symbols)} symbols")
+        _last_backfill_time = datetime.utcnow()
         
         results = {
             "success": 0,
             "failed": 0,
-            "total_records": 0
+            "total_records": 0,
+            "timestamp": _last_backfill_time.isoformat()
         }
         
         for symbol in self.symbols:
             try:
                 records = await self._backfill_symbol(symbol)
-                results["success"] += 1
+                if records > 0:
+                    results["success"] += 1
                 results["total_records"] += records
             except Exception as e:
                 logger.error(f"Backfill failed for {symbol}: {e}")
                 results["failed"] += 1
+        
+        _last_backfill_result = results
         
         logger.info(
             f"Backfill job complete: {results['success']} symbols successful, "
@@ -114,7 +126,7 @@ class AutoBackfillScheduler:
     
     async def _backfill_symbol(self, symbol: str) -> int:
         """
-        Backfill data for a single symbol.
+        Backfill data for a single symbol with retries.
         
         Fetches last N trading days and validates.
         
@@ -130,6 +142,51 @@ class AutoBackfillScheduler:
         
         logger.info(f"Backfilling {symbol}: {start_date} to {end_date}")
         
+        # Use retry logic
+        return await self._fetch_and_insert_with_retry(symbol, start_date, end_date)
+    
+    async def _fetch_and_insert_with_retry(self, symbol: str, start_date, end_date) -> int:
+        """
+        Fetch from Polygon and insert with exponential backoff retry logic.
+        """
+        max_retries = 3
+        retry_count = 0
+        last_error = None
+        
+        while retry_count < max_retries:
+            try:
+                return await self._fetch_and_insert(symbol, start_date, end_date)
+            
+            except Exception as e:
+                last_error = e
+                retry_count += 1
+                
+                if retry_count < max_retries:
+                    # Exponential backoff: 2s, 4s, 8s
+                    wait_time = 2 ** retry_count
+                    logger.warning(
+                        f"Backfill failed for {symbol} (attempt {retry_count}/{max_retries}): {e}. "
+                        f"Retrying in {wait_time}s..."
+                    )
+                    await asyncio.sleep(wait_time)
+                else:
+                    logger.error(f"Backfill failed for {symbol} after {max_retries} attempts: {e}")
+        
+        # All retries exhausted
+        self.db_service.log_backfill(
+            symbol,
+            start_date.strftime('%Y-%m-%d'),
+            end_date.strftime('%Y-%m-%d'),
+            0,
+            False,
+            f"Failed after {max_retries} retries: {str(last_error)}"
+        )
+        return 0
+    
+    async def _fetch_and_insert(self, symbol: str, start_date, end_date) -> int:
+        """
+        Fetch from Polygon, validate, and insert into database.
+        """
         try:
             # Fetch from Polygon
             candles = await self.polygon_client.fetch_daily_range(
@@ -156,8 +213,8 @@ class AutoBackfillScheduler:
             # Validate each candle
             metadata_list = []
             prev_close = None
+            rejected_count = 0
             
-            from decimal import Decimal
             for candle in candles:
                 _, meta = self.validation_service.validate_candle(
                     symbol,
@@ -165,13 +222,34 @@ class AutoBackfillScheduler:
                     prev_close=Decimal(str(prev_close)) if prev_close is not None else None,
                     median_volume=median_vol if median_vol > 0 else None
                 )
-                metadata_list.append(meta)
                 
-                # Update prev_close for next iteration (store as is, convert in validate_candle)
-                prev_close = candle.get('c')  # Close price
+                # Only insert validated candles
+                if meta['validated']:
+                    metadata_list.append((candle, meta))
+                else:
+                    rejected_count += 1
+                
+                # Update prev_close for next iteration
+                prev_close = candle.get('c')
+            
+            if not metadata_list:
+                logger.warning(f"No valid candles for {symbol} ({rejected_count} rejected)")
+                self.db_service.log_backfill(
+                    symbol,
+                    start_date.strftime('%Y-%m-%d'),
+                    end_date.strftime('%Y-%m-%d'),
+                    0,
+                    False,
+                    f"All {rejected_count} candles rejected by validation"
+                )
+                return 0
+            
+            # Extract candles and metadata
+            candles_to_insert = [c for c, _ in metadata_list]
+            metadata_to_insert = [m for _, m in metadata_list]
             
             # Insert into database
-            inserted = self.db_service.insert_ohlcv_batch(symbol, candles, metadata_list)
+            inserted = self.db_service.insert_ohlcv_batch(symbol, candles_to_insert, metadata_to_insert)
             
             # Log backfill result
             self.db_service.log_backfill(
@@ -180,20 +258,25 @@ class AutoBackfillScheduler:
                 end_date.strftime('%Y-%m-%d'),
                 inserted,
                 True,
-                None
+                f"Inserted {inserted}/{len(candles)} candles ({rejected_count} rejected by validation)"
             )
             
-            logger.info(f"Successfully backfilled {inserted} records for {symbol}")
+            logger.info(
+                f"Successfully backfilled {symbol}: {inserted} inserted, "
+                f"{rejected_count} rejected ({inserted}/{len(candles)} valid)"
+            )
             return inserted
         
         except Exception as e:
-            logger.error(f"Error backfilling {symbol}: {e}")
-            self.db_service.log_backfill(
-                symbol,
-                start_date.strftime('%Y-%m-%d'),
-                end_date.strftime('%Y-%m-%d'),
-                0,
-                False,
-                str(e)
-            )
-            return 0
+            logger.error(f"Error in _fetch_and_insert for {symbol}: {e}")
+            raise
+
+
+def get_last_backfill_result() -> Optional[Dict]:
+    """Get last backfill result (for monitoring endpoint)"""
+    return _last_backfill_result
+
+
+def get_last_backfill_time() -> Optional[datetime]:
+    """Get last backfill time (for monitoring endpoint)"""
+    return _last_backfill_time

@@ -7,30 +7,30 @@ from datetime import datetime
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
+from src.config import config
 from src.scheduler import AutoBackfillScheduler
 from src.services.database_service import DatabaseService
 from src.models import HealthResponse, StatusResponse
 
 # Setup logging
 logging.basicConfig(
-    level=os.getenv("LOG_LEVEL", "INFO"),
+    level=config.log_level,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
-# Initialize services
-database_url = os.getenv("DATABASE_URL", "postgresql://postgres:password@localhost:5432/market_data")
-polygon_api_key = os.getenv("POLYGON_API_KEY")
-backfill_hour = int(os.getenv("BACKFILL_SCHEDULE_HOUR", "2"))
-backfill_minute = int(os.getenv("BACKFILL_SCHEDULE_MINUTE", "0"))
+# Log configuration summary
+config.log_summary()
 
-db = DatabaseService(database_url)
+# Initialize services
+db = DatabaseService(config.database_url)
 scheduler = AutoBackfillScheduler(
-    polygon_api_key=polygon_api_key,
-    database_url=database_url,
-    schedule_hour=backfill_hour,
-    schedule_minute=backfill_minute
+    polygon_api_key=config.polygon_api_key,
+    database_url=config.database_url,
+    schedule_hour=config.backfill_schedule_hour,
+    schedule_minute=config.backfill_schedule_minute
 )
 
 
@@ -58,7 +58,7 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"✗ Failed to start scheduler: {e}")
     
-    logger.info("✓ App startup complete")
+    logger.info("✓ App startup complete\n")
     yield
     
     # Shutdown
@@ -74,6 +74,12 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan
 )
+
+# Mount dashboard (if it exists)
+dashboard_path = os.path.join(os.path.dirname(__file__), "dashboard")
+if os.path.isdir(dashboard_path):
+    app.mount("/dashboard", StaticFiles(directory=dashboard_path, html=True), name="dashboard")
+    logger.info("✓ Dashboard mounted at /dashboard")
 
 
 @app.get("/health", response_model=HealthResponse)
@@ -229,6 +235,7 @@ async def root():
         "name": "Market Data API",
         "version": "1.0.0",
         "description": "Validated US stock OHLCV warehouse",
+        "dashboard": "/dashboard",
         "docs": "/docs",
         "endpoints": {
             "health": "/health",
@@ -242,14 +249,10 @@ async def root():
 if __name__ == "__main__":
     import uvicorn
     
-    workers = int(os.getenv("API_WORKERS", "4"))
-    port = int(os.getenv("API_PORT", "8000"))
-    host = os.getenv("API_HOST", "0.0.0.0")
-    
     uvicorn.run(
         app,
-        host=host,
-        port=port,
-        workers=workers,
-        log_level=os.getenv("LOG_LEVEL", "info").lower()
+        host=config.api_host,
+        port=config.api_port,
+        workers=config.api_workers,
+        log_level=config.log_level.lower()
     )

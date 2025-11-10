@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Market Data API Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <div>
+                    <h1>📊 Market Data Dashboard</h1>
+                    <p class="subtitle">Real-time monitoring & system health</p>
+                </div>
+                <div class="header-right">
+                    <div id="status-badge" class="status-badge healthy">● Healthy</div>
+                    <p id="last-update" class="update-time">Last updated: --:-- UTC</p>
+                </div>
+            </div>
+        </header>
+
+        <!-- Alerts Section -->
+        <section id="alerts" class="alerts"></section>
+
+        <!-- Key Metrics Grid -->
+        <section class="metrics-grid">
+            <!-- API Health -->
+            <div class="metric-card">
+                <div class="metric-label">API Status</div>
+                <div id="api-status" class="metric-value">--</div>
+                <div id="response-time" class="metric-subtext">Response: -- ms</div>
+            </div>
+
+            <!-- Symbols Available -->
+            <div class="metric-card">
+                <div class="metric-label">Symbols Loaded</div>
+                <div id="symbols-count" class="metric-value">--</div>
+                <div class="metric-subtext">Active symbols</div>
+            </div>
+
+            <!-- Total Records -->
+            <div class="metric-card">
+                <div class="metric-label">Total Records</div>
+                <div id="total-records" class="metric-value">--</div>
+                <div class="metric-subtext">in database</div>
+            </div>
+
+            <!-- Validation Rate -->
+            <div class="metric-card">
+                <div class="metric-label">Validation Rate</div>
+                <div id="validation-rate" class="metric-value">--%</div>
+                <div class="metric-subtext">data quality</div>
+            </div>
+
+            <!-- Latest Data -->
+            <div class="metric-card">
+                <div class="metric-label">Latest Data</div>
+                <div id="latest-data" class="metric-value">--</div>
+                <div class="metric-subtext">most recent</div>
+            </div>
+
+            <!-- Scheduler Status -->
+            <div class="metric-card">
+                <div class="metric-label">Scheduler</div>
+                <div id="scheduler-status" class="metric-value">--</div>
+                <div class="metric-subtext">auto-backfill 2 AM UTC</div>
+            </div>
+        </section>
+
+        <!-- Data Quality Heatmap -->
+        <section class="card">
+            <h2>Symbol Quality</h2>
+            <div id="symbol-grid" class="symbol-grid">
+                <!-- Populated dynamically -->
+            </div>
+        </section>
+
+        <!-- System Resources -->
+        <section class="card">
+            <h2>System Resources</h2>
+            <div class="resource-grid">
+                <div class="resource-item">
+                    <label>Database Size</label>
+                    <div id="db-size" class="resource-value">-- MB</div>
+                </div>
+                <div class="resource-item">
+                    <label>Data Age</label>
+                    <div id="data-age" class="resource-value">-- hours</div>
+                </div>
+                <div class="resource-item">
+                    <label>Gap Detection</label>
+                    <div id="gap-count" class="resource-value">-- records</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Quick Actions -->
+        <section class="card">
+            <h2>Quick Actions</h2>
+            <div class="actions">
+                <button onclick="refreshDashboard()" class="btn btn-primary">🔄 Refresh Now</button>
+                <button onclick="viewDocs()" class="btn btn-secondary">📖 API Docs</button>
+                <button onclick="testHealth()" class="btn btn-secondary">🏥 Health Check</button>
+            </div>
+        </section>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <p>Market Data API v1.0 • Built for reliable stock data</p>
+        </footer>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

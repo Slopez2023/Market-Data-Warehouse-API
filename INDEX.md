@@ -1,336 +1,163 @@
-# Market Data API - Complete Index
+# Market Data API - Documentation Index
 
-**Project Status:** Ready for Week 4 Deployment  
-**Last Updated:** November 9, 2025  
-**Test Coverage:** 19/19 tests passing
-
----
-
-## Start Here
-
-1. **First time?** → [README.md](README.md) (10 min read)
-2. **Need deployment guide?** → [DEPLOYMENT_CHECKLIST.md](DEPLOYMENT_CHECKLIST.md) (follow step-by-step)
-3. **Quick command reference?** → [QUICK_REFERENCE.md](QUICK_REFERENCE.md)
-4. **Want the full vision?** → [PROJECT_IDEA.md](PROJECT_IDEA.md)
+**Status:** Production Ready  
+**Last Updated:** November 2025  
+**Documentation Version:** 2.0 (Consolidated)
 
 ---
 
-## Documentation Guide
+## Quick Navigation
 
-| Document | Purpose | Read Time | Audience |
-|----------|---------|-----------|----------|
-| [README.md](README.md) | Overview, API reference, quick start | 10 min | Everyone |
-| [PROJECT_IDEA.md](PROJECT_IDEA.md) | Full specification & 5-week plan | 30 min | Architects |
-| [PROGRESS.md](PROGRESS.md) | Implementation status by week | 5 min | Project mgrs |
-| [DEPLOYMENT.md](DEPLOYMENT.md) | Step-by-step deployment guide | 20 min | DevOps |
-| [DEPLOYMENT_CHECKLIST.md](DEPLOYMENT_CHECKLIST.md) | Executable checklist for Week 4 | 30 min | Operators |
-| [WEEK3_SUMMARY.md](WEEK3_SUMMARY.md) | What was built this week | 15 min | Technical leads |
-| [QUICK_REFERENCE.md](QUICK_REFERENCE.md) | Commands, troubleshooting, FAQs | 5 min | Daily users |
+### 📖 Start Here (Everyone)
+- **[README.md](README.md)** — Overview, key features, quick start (10 min read)
 
----
+### 🔧 For Developers & API Users
+- **[API_ENDPOINTS.md](API_ENDPOINTS.md)** — Complete API reference with examples (15 min read)
+- **[QUICK_REFERENCE.md](QUICK_REFERENCE.md)** — Command cheat sheet (2 min)
 
-## Operational Guides
-
-### Getting Started (Local Development)
-
-```bash
-# 1. Setup environment
-cp .env.example .env
-nano .env  # Add your Polygon API key
-
-# 2. Start services
-./docker-start.sh up
-
-# 3. Test endpoints
-curl http://localhost:8000/health | jq '.'
-
-# 4. View API docs
-# Open: http://localhost:8000/docs
-```
-
-### Production Deployment (Week 4)
-
-```bash
-# Follow DEPLOYMENT_CHECKLIST.md step-by-step
-# Estimated time: 4-5 hours (one-time)
-
-# Quick summary:
-1. Install Docker on Proxmox
-2. Clone repo to /opt/market-data-api
-3. Create .env with API keys
-4. Run: docker-compose build && docker-compose up -d
-5. Install systemd service
-6. Setup backup automation
-7. Monitor with: ./monitor.sh
-```
+### 🚀 For Deployment & Operations
+- **[INSTALLATION.md](INSTALLATION.md)** — Setup for local dev & production (30 min read)
+- **[OPERATIONS.md](OPERATIONS.md)** — Daily operations, monitoring, maintenance (20 min read)
 
 ---
 
-## Scripts & Tools
+## Documentation Overview
 
-### Container Management
-```bash
-./docker-start.sh up          # Start all services
-./docker-start.sh status      # Show status and endpoints
-./docker-start.sh logs        # Watch live logs
-./docker-start.sh test        # Run health checks
-./docker-start.sh down        # Stop gracefully
-./docker-start.sh clean       # Cleanup old images
-./docker-start.sh reset       # Complete reset
-```
-
-### Monitoring & Maintenance
-```bash
-./monitor.sh                  # Real-time dashboard
-./backup.sh                   # Manual backup
-```
-
-### Systemd Service
-```bash
-sudo systemctl start market-data-api     # Start
-sudo systemctl status market-data-api    # Status
-sudo systemctl restart market-data-api   # Restart
-```
+| Document | Purpose | Audience | Time |
+|----------|---------|----------|------|
+| **README.md** | Project overview, features, architecture, quick start | Everyone | 10 min |
+| **API_ENDPOINTS.md** | Complete endpoint reference with code examples | Developers | 15 min |
+| **INSTALLATION.md** | Local setup and production deployment guides | DevOps | 30 min |
+| **OPERATIONS.md** | Daily operations, monitoring, troubleshooting | Operators | 20 min |
+| **QUICK_REFERENCE.md** | Command reference and FAQ | Daily users | 2 min |
 
 ---
 
-## API Endpoints (When Running)
+## Common Workflows
 
-### Health & Status
-```bash
-GET http://localhost:8000/health
-GET http://localhost:8000/api/v1/status
-GET http://localhost:8000/api/v1/symbols
-```
+### I Want to Get Started Quickly
 
-### Historical Data
-```bash
-GET http://localhost:8000/api/v1/historical/{symbol}
-  ?start=YYYY-MM-DD
-  &end=YYYY-MM-DD
-  &validated_only=true
-  &min_quality=0.85
-```
+1. Read **[README.md](README.md)** (what it is, key features)
+2. Follow **[INSTALLATION.md](INSTALLATION.md)** Quick Start section
+3. Access dashboard at `http://localhost:8000/dashboard`
 
-### Documentation
+**Time:** 15 minutes
+
+### I Need to Deploy to Production
+
+1. Read **[INSTALLATION.md](INSTALLATION.md)** - Production Deployment section
+2. Configure environment variables
+3. Set up systemd service
+4. Configure backups
+5. Verify with **[OPERATIONS.md](OPERATIONS.md)** health checks
+
+**Time:** 45 minutes
+
+### I Need to Use the API
+
+1. Read **[README.md](README.md)** - API Reference section (quick overview)
+2. Detailed reference: **[API_ENDPOINTS.md](API_ENDPOINTS.md)**
+3. Interactive docs: `http://localhost:8000/docs` (when running)
+
+**Time:** 10-15 minutes
+
+### I Need Daily Operational Guidance
+
+1. Morning check: **[OPERATIONS.md](OPERATIONS.md)** - Daily Operations
+2. Common tasks: **[OPERATIONS.md](OPERATIONS.md)** - Common Maintenance Tasks
+3. Quick commands: **[QUICK_REFERENCE.md](QUICK_REFERENCE.md)**
+
+**Time:** Ongoing
+
+### I'm Troubleshooting an Issue
+
+1. Check **[OPERATIONS.md](OPERATIONS.md)** - Troubleshooting & Alerts section
+2. Check **[INSTALLATION.md](INSTALLATION.md)** - Troubleshooting section
+3. Review logs: `docker-compose logs -f api`
+
+---
+
+## File Structure
+
 ```
-Swagger UI:  http://localhost:8000/docs
-ReDoc:       http://localhost:8000/redoc
+Market-Data-Warehouse-API/
+├── README.md                    ← Start here (overview + quick start)
+├── API_ENDPOINTS.md             ← API reference documentation
+├── INSTALLATION.md              ← Deployment & setup guide
+├── OPERATIONS.md                ← Day-to-day operations guide
+├── QUICK_REFERENCE.md           ← Command cheat sheet
+├── INDEX.md                     ← This file
+├── .archive/                    ← Historical docs (for reference only)
+├── src/                         ← Application source code
+├── dashboard/                   ← Web UI (HTML/CSS/JS)
+├── sql/                         ← Database schema
+├── docker-compose.yml           ← Docker configuration
+├── .env.example                 ← Environment template
+└── requirements.txt             ← Python dependencies
 ```
 
 ---
 
-## Project Structure
+## Key Endpoints
 
-```
-market-data-api/
-├── Core Application
-│   ├── main.py                          # FastAPI app
-│   ├── Dockerfile                       # Container image
-│   └── requirements.txt                 # Python deps
-│
-├── Source Code
-│   └── src/
-│       ├── clients/
-│       │   └── polygon_client.py        # Polygon.io API
-│       ├── services/
-│       │   ├── validation_service.py    # OHLCV validation
-│       │   └── database_service.py      # DB operations
-│       ├── models.py                    # Pydantic schemas
-│       └── scheduler.py                 # Daily backfill
-│
-├── Database
-│   ├── sql/
-│   │   └── schema.sql                   # TimescaleDB schema
-│   └── migrations/                      # Alembic versions
-│
-├── Testing
-│   └── tests/
-│       ├── test_validation.py           # Unit tests (10)
-│       ├── test_integration.py          # Integration (5)
-│       └── test_backfill_mock.py        # Backfill (4)
-│
-├── Docker & Deployment
-│   ├── docker-compose.yml               # Orchestration
-│   ├── docker-start.sh                  # Container mgmt
-│   ├── backup.sh                        # Weekly backups
-│   ├── monitor.sh                       # Monitoring
-│   └── market-data-api.service          # Systemd service
-│
-├── Documentation
-│   ├── README.md                        # Quick start
-│   ├── PROJECT_IDEA.md                  # Full spec
-│   ├── PROGRESS.md                      # Status
-│   ├── DEPLOYMENT.md                    # Deploy guide
-│   ├── DEPLOYMENT_CHECKLIST.md          # Checklist
-│   ├── WEEK3_SUMMARY.md                 # Week 3 work
-│   ├── QUICK_REFERENCE.md               # Commands
-│   └── .env.example                     # Config template
-│
-└── Configuration
-    └── .env                             # (secrets, not in repo)
-```
+**Once running:**
+
+- **API Health:** `curl http://localhost:8000/health`
+- **Status Metrics:** `curl http://localhost:8000/api/v1/status`
+- **Dashboard:** `http://localhost:8000/dashboard` (browser)
+- **API Docs:** `http://localhost:8000/docs` (interactive Swagger UI)
 
 ---
 
-## Weekly Implementation Timeline
+## Technology Stack
 
-### ✅ Week 0: Discovery & Validation
-- Polygon API data validation
-- Spot-check against Yahoo Finance (100% match)
-- Rate limit verification
-- Backup infrastructure planning
-
-### ✅ Week 1: Database + Scheduler + Fetcher
-- TimescaleDB schema (4 tables, indexes)
-- Polygon client with retry logic
-- Validation service (OHLCV, gaps, volume)
-- Database service (insertion, querying)
-- APScheduler (daily 2 AM UTC)
-- 19/19 tests passing
-
-### ✅ Week 2: FastAPI Application
-- REST API with 4 endpoints
-- Health checks
-- Status monitoring
-- Historical data queries
-- Pydantic models
-- Auto-docs at `/docs`
-
-### ✅ Week 3: Docker & Deployment (THIS WEEK)
-- Docker Compose orchestration
-- Container management scripts (docker-start.sh)
-- Systemd auto-start service
-- Backup automation (backup.sh)
-- Real-time monitoring (monitor.sh)
-- 1000+ lines of deployment documentation
-
-### ⏳ Week 4: Production Deployment to Proxmox
-- Install Docker on Proxmox
-- Build and start containers
-- Configure systemd auto-start
-- Setup backup automation
-- Run initial backfill (15+ symbols)
-- Monitor and verify
+- **API Framework:** FastAPI (Python 3.11)
+- **Database:** TimescaleDB (PostgreSQL with time-series extension)
+- **Data Source:** Polygon.io
+- **Deployment:** Docker & Docker Compose
+- **Scheduler:** APScheduler (daily auto-backfill)
+- **Dashboard:** HTML5 + CSS3 + Vanilla JavaScript
 
 ---
 
-## Key Metrics
+## Support
 
-### Code Quality
-- **Tests:** 19/19 passing
-- **Validation Rate:** >95% on live Polygon data
-- **Data Accuracy:** 100% match with Yahoo Finance
+**Questions?**
+1. Check the relevant documentation above
+2. See **[API_ENDPOINTS.md](API_ENDPOINTS.md)** for API questions
+3. See **[INSTALLATION.md](INSTALLATION.md)** for setup questions
+4. See **[OPERATIONS.md](OPERATIONS.md)** for operational questions
+5. Check logs: `docker-compose logs -f`
 
-### Performance
-- **Query Latency:** <100ms for any symbol/date
-- **API Response:** <50ms for health check
-- **Backfill Rate:** ~10 symbols per 5 minutes
-- **Database Size:** ~20GB for 5 years, 500 stocks (compressed)
-
-### Operations
-- **Uptime Target:** 99.9% (monitored via systemd)
-- **Backup Frequency:** Weekly (automated cron)
-- **Data Retention:** Forever (no pruning)
-- **Recovery Time:** <15 minutes from backup
+**Documentation is canonical.** If you find something unclear, it's a docs bug — update it and commit.
 
 ---
 
-## Success Criteria (End of Week 4)
+## Archived Documentation
 
-✅ Deploy to Proxmox Debian 12 VM  
-✅ Auto-start on system reboot  
-✅ Backfill 15+ symbols (5+ years each)  
-✅ Validation rate >95%  
-✅ Data spot-checked against Yahoo Finance  
-✅ Automated backups running (Sunday 3 AM)  
-✅ Restore tested and verified  
-✅ API responding to all endpoints  
-✅ Monitoring dashboard functional  
-✅ Zero manual intervention required  
+The `.archive/` folder contains historical documentation from development:
+- Week-by-week progress notes
+- Deployment checklists from earlier phases
+- Dashboard implementation docs (consolidated into OPERATIONS.md)
+- Project planning documents
 
----
+These are kept for historical reference but are not part of the active documentation set.
 
-## Troubleshooting Quick Links
-
-**Container won't start?** → See [DEPLOYMENT.md](DEPLOYMENT.md#troubleshooting) (Troubleshooting section)
-
-**Backfill failing?** → Check [QUICK_REFERENCE.md](QUICK_REFERENCE.md#backfill-not-running)
-
-**API not responding?** → Try `./docker-start.sh test`
-
-**Backup not working?** → Run `/opt/market-data-api/backup.sh` manually
-
-**Monitor system?** → Run `./monitor.sh` for real-time dashboard
+**For current operations, refer only to the files listed at the top of this page.**
 
 ---
 
-## Configuration
+## Version History
 
-### Environment Variables (.env)
+**v2.0 - November 2025 (Consolidated)**
+- Consolidated 24 files into 5 focused documents
+- Removed redundancy and duplication
+- Improved navigation and organization
+- Kit hub ready
 
-**Required:**
-```
-POLYGON_API_KEY=your_api_key
-DB_PASSWORD=strong_password
-```
-
-**Optional (with defaults):**
-```
-DATABASE_URL=postgresql://postgres:password@timescaledb:5432/market_data
-LOG_LEVEL=INFO
-API_HOST=0.0.0.0
-API_PORT=8000
-API_WORKERS=4
-BACKFILL_SCHEDULE_HOUR=2
-BACKFILL_SCHEDULE_MINUTE=0
-```
-
-See [.env.example](.env.example) for full template.
+**v1.0 - Original Documentation**
+- See `.archive/` for historical versions
 
 ---
 
-## Contact & Support
-
-**Internal Documentation:**
-- Full spec: [PROJECT_IDEA.md](PROJECT_IDEA.md)
-- Deployment: [DEPLOYMENT_CHECKLIST.md](DEPLOYMENT_CHECKLIST.md)
-- Commands: [QUICK_REFERENCE.md](QUICK_REFERENCE.md)
-
-**External Resources:**
-- Polygon.io: https://polygon.io/docs/stocks
-- TimescaleDB: https://docs.timescale.com
-- FastAPI: https://fastapi.tiangolo.com
-
----
-
-## Version Info
-
-```
-API Version:        1.0.0
-Python:            3.11+
-FastAPI:           0.104.1
-SQLAlchemy:        2.0.23
-TimescaleDB:       Latest (PostgreSQL 15)
-Docker:            28.5.0+
-Alembic:           1.13.0
-```
-
----
-
-## Next Steps
-
-**Ready to deploy?** Follow [DEPLOYMENT_CHECKLIST.md](DEPLOYMENT_CHECKLIST.md)
-
-**Want to understand the architecture?** Read [PROJECT_IDEA.md](PROJECT_IDEA.md)
-
-**Need quick commands?** See [QUICK_REFERENCE.md](QUICK_REFERENCE.md)
-
-**Questions?** Check [README.md](README.md) or relevant doc above.
-
----
-
-**Built with:** Python, FastAPI, TimescaleDB, Docker, Polygon.io  
-**Status:** Production-ready for deployment  
-**Last tested:** November 9, 2025  
-**Tests passing:** 19/19 ✅
+**Last Updated:** November 9, 2025

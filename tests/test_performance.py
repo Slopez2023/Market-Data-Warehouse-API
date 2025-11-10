@@ -16,8 +16,7 @@ load_dotenv()
 
 
 @pytest.fixture
-def polygon_client():
-    api_key = os.getenv('POLYGON_API_KEY')
+def polygon_client(api_key):
     return PolygonClient(api_key)
 
 
@@ -26,6 +25,7 @@ def validation_service():
     return ValidationService()
 
 
+@pytest.mark.performance
 class TestEndpointPerformance:
     """Test API endpoint response times"""
     
@@ -78,8 +78,9 @@ class TestEndpointPerformance:
         print(f"\n✓ 5 concurrent calls: {elapsed:.2f}s (speedup vs sequential)")
 
 
+@pytest.mark.performance
 class TestValidationPerformance:
-    """Test validation service performance"""
+     """Test validation service performance"""
     
     @pytest.mark.asyncio
     async def test_validation_throughput_single_symbol(self, polygon_client, validation_service):
@@ -137,8 +138,9 @@ class TestValidationPerformance:
         print(f"\n✓ Median volume calculation ({len(candles)} candles): {elapsed*1000:.2f}ms")
 
 
+@pytest.mark.performance
 class TestConcurrentLoad:
-    """Test behavior under concurrent load"""
+     """Test behavior under concurrent load"""
     
     @pytest.mark.asyncio
     async def test_concurrent_validation_load(self, polygon_client, validation_service):
@@ -201,8 +203,9 @@ class TestConcurrentLoad:
         print(f"\n✓ 10 concurrent symbol fetches: {elapsed:.2f}s, {successful}/10 successful")
 
 
+@pytest.mark.performance
 class TestMemoryEfficiency:
-    """Test memory usage and data handling efficiency"""
+     """Test memory usage and data handling efficiency"""
     
     @pytest.mark.asyncio
     async def test_large_dataset_handling(self, polygon_client, validation_service):
@@ -261,8 +264,9 @@ class TestMemoryEfficiency:
         print(f"  - Throughput: {total_records/batch_time:.0f} records/sec")
 
 
+@pytest.mark.performance
 class TestDataQualityPerformance:
-    """Test performance of quality filtering and analytics"""
+     """Test performance of quality filtering and analytics"""
     
     @pytest.mark.asyncio
     async def test_quality_filtering_performance(self, polygon_client, validation_service):
@@ -288,8 +292,9 @@ class TestDataQualityPerformance:
         print(f"  - Good quality (≥0.85): {good_quality} ({good_quality/len(candles)*100:.1f}%)")
 
 
+@pytest.mark.performance
 class TestRegressionPerformance:
-    """Regression tests to ensure performance doesn't degrade"""
+     """Regression tests to ensure performance doesn't degrade"""
     
     @pytest.mark.asyncio
     async def test_health_check_response_time(self, polygon_client, validation_service):

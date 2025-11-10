@@ -3,11 +3,16 @@
 import logging
 from typing import List, Optional, Dict
 from datetime import datetime
+import time
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, Session
-from sqlalchemy.pool import NullPool
+from sqlalchemy.pool import QueuePool
 
 logger = logging.getLogger(__name__)
+
+# Simple cache for metrics (5-minute TTL)
+_metrics_cache = {"data": None, "timestamp": 0}
+_CACHE_TTL = 300  # seconds
 
 
 class DatabaseService:
@@ -30,7 +35,11 @@ class DatabaseService:
         """
         self.engine = create_engine(
             database_url,
-            poolclass=NullPool,  # Disable connection pooling for better compatibility
+            poolclass=QueuePool,
+            pool_size=10,  # Number of connections to keep in pool
+            max_overflow=20,  # Additional connections if pool exhausted
+            pool_recycle=3600,  # Recycle connections every hour (prevents stale connections)
+            pool_pre_ping=True,  # Test connections before using them
             echo=False
         )
         self.SessionLocal = sessionmaker(bind=self.engine, autocommit=False, autoflush=False)
@@ -154,7 +163,7 @@ class DatabaseService:
                 FROM market_data
                 WHERE symbol = :symbol
                   AND time >= :start_date::timestamp
-                  AND time <= :end_date::timestamp
+                  AND time < :end_date::timestamp + INTERVAL '1 day'
             """)
             
             params = {
@@ -274,41 +283,52 @@ class DatabaseService:
             session.close()
     
     def get_status_metrics(self) -> Dict:
-        """Get overall system metrics for status endpoint"""
+        """Get overall system metrics for status endpoint (cached, 5-min TTL)"""
+        global _metrics_cache
+        
+        # Check cache
+        current_time = time.time()
+        if (_metrics_cache["data"] is not None and 
+            current_time - _metrics_cache["timestamp"] < _CACHE_TTL):
+            logger.debug("Returning cached metrics")
+            return _metrics_cache["data"]
+        
         session = self.SessionLocal()
         
         try:
-            # Count symbols
-            symbols_query = text("SELECT COUNT(DISTINCT symbol) FROM market_data")
-            symbol_count = session.execute(symbols_query).scalar() or 0
-            
-            # Latest date in DB
-            latest_query = text("SELECT MAX(time) FROM market_data")
-            latest_date = session.execute(latest_query).scalar()
-            
-            # Validation metrics
-            validation_query = text("""
+            # Single optimized query for all metrics
+            metrics_query = text("""
                 SELECT 
-                    COUNT(*) FILTER (WHERE validated = TRUE) as valid_count,
-                    COUNT(*) as total_count
+                    COUNT(DISTINCT symbol) as symbols,
+                    MAX(time) as latest_time,
+                    COUNT(*) as total_records,
+                    COUNT(*) FILTER (WHERE validated = TRUE) as validated_records,
+                    COUNT(*) FILTER (WHERE gap_detected = TRUE) as gap_records
                 FROM market_data
             """)
-            result = session.execute(validation_query).first()
-            valid_count, total_count = result if result else (0, 0)
-            validation_rate = (valid_count / total_count * 100) if total_count > 0 else 0
+            result = session.execute(metrics_query).first()
             
-            # Gap detection
-            gap_query = text("SELECT COUNT(*) FROM market_data WHERE gap_detected = TRUE")
-            gap_count = session.execute(gap_query).scalar() or 0
+            if result:
+                symbol_count, latest_date, total_count, valid_count, gap_count = result
+                validation_rate = (valid_count / total_count * 100) if total_count > 0 else 0
+            else:
+                symbol_count, latest_date, total_count, valid_count, gap_count = 0, None, 0, 0, 0
+                validation_rate = 0
             
-            return {
-                "symbols_available": symbol_count,
+            metrics_data = {
+                "symbols_available": symbol_count or 0,
                 "latest_data": latest_date.isoformat() if latest_date else None,
-                "total_records": total_count,
-                "validated_records": valid_count,
+                "total_records": total_count or 0,
+                "validated_records": valid_count or 0,
                 "validation_rate_pct": round(validation_rate, 2),
-                "records_with_gaps_flagged": gap_count
+                "records_with_gaps_flagged": gap_count or 0
             }
+            
+            # Update cache
+            _metrics_cache["data"] = metrics_data
+            _metrics_cache["timestamp"] = current_time
+            
+            return metrics_data
         
         except Exception as e:
             logger.error(f"Error getting status metrics: {e}")

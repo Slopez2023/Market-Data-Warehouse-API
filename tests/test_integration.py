@@ -14,8 +14,7 @@ load_dotenv()
 
 
 @pytest.fixture
-def polygon_client():
-    api_key = os.getenv('POLYGON_API_KEY')
+def polygon_client(api_key):
     return PolygonClient(api_key)
 
 
@@ -24,6 +23,7 @@ def validation_service():
     return ValidationService()
 
 
+@pytest.mark.integration
 class TestPolygonIntegration:
     """Test real Polygon API integration"""
     
@@ -82,8 +82,9 @@ class TestPolygonIntegration:
         assert validation_rate >= 80.0, f"Validation rate too low: {validation_rate:.1f}%"
 
 
+@pytest.mark.integration
 class TestValidationQuality:
-    """Test validation quality scoring on real data"""
+     """Test validation quality scoring on real data"""
     
     @pytest.mark.asyncio
     async def test_validation_quality_distribution(self, polygon_client, validation_service):
@@ -114,8 +115,9 @@ class TestValidationQuality:
         print(f"  Max quality: {max(quality_scores):.3f}")
 
 
+@pytest.mark.integration
 class TestDataConsistency:
-    """Test data consistency between sources"""
+     """Test data consistency between sources"""
     
     @pytest.mark.asyncio
     async def test_polygon_data_format(self, polygon_client):
