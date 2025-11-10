@@ -282,6 +282,60 @@ class DatabaseService:
         finally:
             session.close()
     
+    def get_symbol_stats(self, symbol: str) -> Dict:
+        """
+        Get detailed statistics for a specific symbol.
+        
+        Args:
+            symbol: Stock ticker
+        
+        Returns:
+            Dict with record_count, date_range, validation_rate, gaps_detected
+        """
+        session = self.SessionLocal()
+        
+        try:
+            stats_query = text("""
+                SELECT 
+                    COUNT(*) as record_count,
+                    MIN(time) as start_date,
+                    MAX(time) as end_date,
+                    COUNT(*) FILTER (WHERE validated = TRUE) as validated_count,
+                    COUNT(*) FILTER (WHERE gap_detected = TRUE) as gaps_count
+                FROM market_data
+                WHERE symbol = :symbol
+            """)
+            
+            result = session.execute(stats_query, {"symbol": symbol}).first()
+            
+            if result:
+                record_count, start_date, end_date, validated_count, gaps_count = result
+                validation_rate = (validated_count / record_count) if record_count > 0 else 0
+                
+                return {
+                    "record_count": record_count or 0,
+                    "date_range": {
+                        "start": start_date.isoformat() if start_date else None,
+                        "end": end_date.isoformat() if end_date else None
+                    },
+                    "validation_rate": round(validation_rate, 2),
+                    "gaps_detected": gaps_count or 0
+                }
+            else:
+                return {
+                    "record_count": 0,
+                    "date_range": {"start": None, "end": None},
+                    "validation_rate": 0,
+                    "gaps_detected": 0
+                }
+        
+        except Exception as e:
+            logger.error(f"Error getting stats for {symbol}: {e}")
+            return {}
+        
+        finally:
+            session.close()
+    
     def get_status_metrics(self) -> Dict:
         """Get overall system metrics for status endpoint (cached, 5-min TTL)"""
         global _metrics_cache

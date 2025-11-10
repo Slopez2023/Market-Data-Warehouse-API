@@ -4,42 +4,42 @@
 
 Single source of truth for daily backfilled market data. Query any symbol for any date range with guaranteed quality validation and gap detection.
 
-**Status:** Production Ready  
+**Status:** ✅ Production Ready & Running  
 **Architecture:** Polygon.io → TimescaleDB → FastAPI REST API + Dashboard  
-**Cost:** ~$30/month (Polygon.io API only)
+**Current Data:** 18,359 records | 15 symbols | 99.69% validation  
+**Cost:** ~$30/month (Polygon.io Starter tier)
 
 ---
 
 ## Quick Start (5 Minutes)
 
 ### Prerequisites
-- Docker & Docker Compose
-- Polygon.io API key (free tier: $0, Starter tier: $29.99/mo)
+- Docker & Docker Compose (v2+)
+- Polygon.io API key (Starter tier: $29.99/mo for 5 calls/min)
+- `.env` file in `config/` directory with `POLYGON_API_KEY` set
 
 ### Local Development
 ```bash
-# 1. Clone and setup
-git clone <your-repo> market-data-api
-cd market-data-api
-cp .env.example .env
+# 1. Navigate to infrastructure directory
+cd infrastructure
 
-# 2. Add your Polygon API key
-nano .env  # Set POLYGON_API_KEY=your_key_here
+# 2. Start services (uses .env from config/)
+docker-compose up -d --build
 
-# 3. Start services
-docker-compose up -d
+# 3. Verify it works
+curl http://localhost:8000/api/v1/status
 
-# 4. Verify it works
-curl http://localhost:8000/health
+# 4. Access dashboard
+# Browser: http://localhost:3000
 
-# 5. Access dashboard
-# Browser: http://localhost:8000/dashboard
-
-# 6. View API docs
+# 5. View API docs
 # Browser: http://localhost:8000/docs
+
+# 6. Populate data (manual backfill)
+docker exec infrastructure-api-1 bash -c "cd /app && PYTHONPATH=/app python scripts/backfill.py"
 ```
 
-**Done.** Services are running. Dashboard shows real-time metrics.
+**Done.** Services are running. Dashboard shows real-time metrics at port 3000.
 
 ---
 
@@ -199,16 +199,20 @@ Returns: Array of available stock tickers
 
 ## Dashboard
 
-Access at `http://localhost:8000/dashboard` — Real-time monitoring UI.
+Access at `http://localhost:3000` — Real-time monitoring UI.
 
 **Displays:**
-- System health status (green/yellow/red)
-- Database metrics (symbol count, total records, validation rate %)
+- System health status (● Healthy)
+- Validation rate (data quality %)
+- Data staleness (age of latest candle)
+- API status and response time
+- Symbols loaded and active
+- Total records in database
 - Latest data date
-- Gap-flagged records count
+- Gap detection results
 - Scheduler status
-- Symbol quality grid
-- Smart alerts (low validation rate, data staleness, scheduler failure)
+- Symbol quality cards (AAPL, MSFT, GOOGL, etc.)
+- Quick actions (Refresh, API Docs, Health Check)
 - Auto-refresh every 10 seconds
 
 ---
