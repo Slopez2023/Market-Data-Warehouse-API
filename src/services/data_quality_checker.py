@@ -3,7 +3,7 @@
 import logging
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime, timedelta
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 logger = logging.getLogger(__name__)
 
@@ -217,7 +217,7 @@ class DataQualityChecker:
                 
                 if not (l <= min(o, c) and h >= max(o, c)):
                     issues_count += 1
-            except:
+            except (ValueError, TypeError, InvalidOperation):
                 issues_count += 1
         
         # Penalize for anomalies

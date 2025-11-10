@@ -123,7 +123,7 @@ class AppConfig:
             if len(parts) == 2:
                 return f"***@{parts[1]}"
             return url[:10] + "***"
-        except:
+        except Exception:
             return url[:10] + "***"
 
     @staticmethod

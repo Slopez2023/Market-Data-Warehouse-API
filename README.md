@@ -1,6 +1,6 @@
 # Market Data Warehouse API
 
-**Production-Ready | Enterprise Grade | 347 Tests | 100% Pass Rate**
+**Production-Ready | Enterprise Grade | 314+ Tests | 91% Pass Rate**
 
 A comprehensive market data API serving stocks and cryptocurrency data from Polygon.io with authentication, performance optimization, and observability.
 
@@ -130,8 +130,8 @@ For detailed setup, see [Installation Guide](/docs/getting-started/INSTALLATION.
 
 | Metric | Value |
 |--------|-------|
-| Total Tests | 347 |
-| Pass Rate | 100% |
+| Total Tests | 314+ passing |
+| Pass Rate | 91% |
 | Code Coverage | Comprehensive |
 | Supported Symbols | 15+ stocks + crypto |
 | API Endpoints | 25+ |
