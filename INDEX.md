@@ -1,203 +1,148 @@
 # Market Data API - Documentation Index
 
-**Status:** Production Ready  
-**Last Updated:** November 9, 2025  
-**Documentation Version:** 2.1 (Phase 5 Complete)
+**Status:** Production Ready (Phase 6.5 Complete)  
+**Last Updated:** November 10, 2025
 
 ---
 
-## Quick Navigation
+## Start Here
 
-### 📖 Development & Status
-- **[DEVELOPMENT_STATUS.md](DEVELOPMENT_STATUS.md)** — Current project phase, test coverage, production status (15 min read)
-- **[PHASE_5_SUMMARY.md](PHASE_5_SUMMARY.md)** — Latest phase completion summary (5 min read)
-
-### 📊 For Monitoring & Performance
-- **[OBSERVABILITY.md](OBSERVABILITY.md)** — Logging, metrics, and alerts guide (25 min read)
-- **[OBSERVABILITY_QUICKSTART.md](OBSERVABILITY_QUICKSTART.md)** — Quick observability setup (10 min)
-- **[PERFORMANCE_QUICK_REFERENCE.md](PERFORMANCE_QUICK_REFERENCE.md)** — Performance monitoring cheat sheet (5 min)
-
-### 📚 Phase Documentation (Historical Reference)
-- **[PHASE_1_COMPLETE.md](PHASE_1_COMPLETE.md)** — Testing framework and validation suite (10 min)
-- **[PHASE_2_COMPLETE.md](PHASE_2_COMPLETE.md)** — Error handling and data quality (15 min)
-- **[PHASE_2_SUMMARY.md](PHASE_2_SUMMARY.md)** — Quick Phase 2 summary (5 min)
-- **[PHASE_4_COMPLETE.md](PHASE_4_COMPLETE.md)** — Observability and monitoring (15 min)
-- **[PHASE_5_COMPLETE.md](PHASE_5_COMPLETE.md)** — Load testing and performance optimization (20 min)
+1. **[README.md](README.md)** — Overview, quick start, features (5 min)
+2. **[DEPLOYMENT.md](DEPLOYMENT.md)** — How to run locally or in Docker (5 min)
+3. **[docs/README.md](docs/README.md)** — Full documentation structure
 
 ---
 
-## Documentation Overview
-
-| Document | Purpose | Audience | Time |
-|----------|---------|----------|------|
-| **DEVELOPMENT_STATUS.md** | Project phases, test coverage, production readiness | Everyone | 15 min |
-| **PHASE_5_SUMMARY.md** | Latest features and performance baselines | Developers | 5 min |
-| **OBSERVABILITY.md** | Metrics, logging, and alerting guide | Operators | 25 min |
-| **OBSERVABILITY_QUICKSTART.md** | Quick observability setup | Operators | 10 min |
-| **PERFORMANCE_QUICK_REFERENCE.md** | Performance endpoint reference | Performance teams | 5 min |
-| **PHASE_*.md** | Historical phase documentation | Reference | Varies |
-
----
-
-## Common Workflows
-
-### I Want to Understand Current Status
-
-1. Read **[DEVELOPMENT_STATUS.md](DEVELOPMENT_STATUS.md)** for phase overview
-2. Check **[PHASE_5_SUMMARY.md](PHASE_5_SUMMARY.md)** for latest features
-3. Run: `pytest tests/ -v` to verify all tests pass
-
-**Time:** 10 minutes
-
-### I Need to Monitor System Health
-
-1. Read **[OBSERVABILITY_QUICKSTART.md](OBSERVABILITY_QUICKSTART.md)** for setup
-2. Check endpoints:
-   - `curl http://localhost:8000/health` — API health
-   - `curl http://localhost:8000/api/v1/status` — System status
-   - `curl http://localhost:8000/api/v1/observability/metrics` — Performance metrics
-
-**Time:** 5 minutes
-
-### I Need Performance Details
-
-1. Read **[PERFORMANCE_QUICK_REFERENCE.md](PERFORMANCE_QUICK_REFERENCE.md)**
-2. Run: `python scripts/load_test_runner.py` for load testing
-3. Check `/api/v1/performance/summary` endpoint
-
-**Time:** 10 minutes
-
-### I Need Full Monitoring Setup
-
-1. Read **[OBSERVABILITY.md](OBSERVABILITY.md)** - Comprehensive guide
-2. Configure alert handlers in config
-3. Monitor endpoints in **[OBSERVABILITY_QUICKSTART.md](OBSERVABILITY_QUICKSTART.md)**
-
-**Time:** 30 minutes
-
-### I'm Troubleshooting Performance Issues
-
-1. Check **[PERFORMANCE_QUICK_REFERENCE.md](PERFORMANCE_QUICK_REFERENCE.md)** for endpoints
-2. Review metrics: `curl http://localhost:8000/api/v1/performance/summary | jq .`
-3. Review alerts: `curl http://localhost:8000/api/v1/observability/alerts`
-4. Check logs: `docker-compose logs -f api`
-
----
-
-## File Structure
+## Documentation Structure
 
 ```
-Market-Data-Warehouse-API/
-├── DEVELOPMENT_STATUS.md        ← Current phase and production status
-├── PHASE_5_SUMMARY.md          ← Latest feature summary
-├── INDEX.md                    ← This file (documentation index)
-├── OBSERVABILITY.md            ← Monitoring and logging guide
-├── OBSERVABILITY_QUICKSTART.md ← Quick observability setup
-├── PERFORMANCE_QUICK_REFERENCE.md ← Performance endpoints reference
-├── PHASE_*_COMPLETE.md         ← Historical phase documentation
-├── .archive/                   ← Historical docs (for reference only)
-├── src/                        ← Application source code
-│   ├── services/               ← Business logic and utilities
-│   ├── clients/                ← External API clients
-│   ├── config.py               ← Configuration
-│   ├── middleware.py           ← Request/response middleware
-│   ├── models.py               ← Data models
-│   └── scheduler.py            ← Background job scheduler
-├── tests/                      ← Test suite (208 total tests)
-├── dashboard/                  ← Web UI (HTML/CSS/JS)
-├── scripts/                    ← Utility scripts
-├── database/                   ← Database initialization
-├── docker-compose.yml          ← Docker configuration
-├── main.py                     ← Application entry point
-├── conftest.py                 ← Pytest configuration
-└── requirements.txt            ← Python dependencies
+├── README.md                          ← PROJECT OVERVIEW & QUICK START
+├── DEPLOYMENT.md                      ← HOW TO RUN THE APP
+├── INDEX.md                           ← THIS FILE
+└── docs/                              ← FULL DOCUMENTATION
+    ├── getting-started/               ← Setup & installation
+    │   ├── INSTALLATION.md
+    │   ├── QUICKSTART.md
+    │   └── SETUP_GUIDE.md
+    ├── api/                           ← API reference
+    │   ├── ENDPOINTS.md
+    │   ├── AUTHENTICATION.md
+    │   ├── SYMBOLS.md
+    │   └── CRYPTO.md
+    ├── operations/                    ← Running & monitoring
+    │   ├── DEPLOYMENT.md
+    │   ├── MONITORING.md
+    │   ├── PERFORMANCE.md
+    │   └── TROUBLESHOOTING.md
+    ├── development/                   ← Developer guide
+    │   ├── ARCHITECTURE.md
+    │   ├── TESTING.md
+    │   └── CONTRIBUTING.md
+    ├── observability/                 ← Logging & metrics
+    ├── architecture/                  ← System design
+    ├── reference/                     ← Quick reference & FAQ
+    ├── phases/                        ← Phase completion docs
+    └── QUICK_REFERENCE.md             ← Cheat sheet
 ```
 
 ---
 
-## Key Endpoints
+## Quick Navigation by Task
 
-**Once running:**
+### I want to get the app running
+→ **[DEPLOYMENT.md](DEPLOYMENT.md)** (5 min)
 
-- **API Health:** `curl http://localhost:8000/health`
-- **System Status:** `curl http://localhost:8000/api/v1/status`
-- **Observability Metrics:** `curl http://localhost:8000/api/v1/observability/metrics`
-- **Performance Summary:** `curl http://localhost:8000/api/v1/performance/summary`
-- **Cache Stats:** `curl http://localhost:8000/api/v1/performance/cache`
-- **Query Performance:** `curl http://localhost:8000/api/v1/performance/queries`
-- **Alert History:** `curl http://localhost:8000/api/v1/observability/alerts`
-- **API Docs:** `http://localhost:8000/docs` (interactive Swagger UI)
+### I need the full setup guide
+→ **[docs/getting-started/INSTALLATION.md](docs/getting-started/INSTALLATION.md)**
+
+### I need API documentation
+→ **[docs/api/ENDPOINTS.md](docs/api/ENDPOINTS.md)**
+
+### I need to deploy to production
+→ **[docs/operations/DEPLOYMENT.md](docs/operations/DEPLOYMENT.md)**
+
+### I need to monitor the system
+→ **[docs/operations/MONITORING.md](docs/operations/MONITORING.md)**
+
+### I'm developing and need to understand the codebase
+→ **[docs/development/ARCHITECTURE.md](docs/development/ARCHITECTURE.md)**
+
+### I need performance tuning info
+→ **[docs/operations/PERFORMANCE.md](docs/operations/PERFORMANCE.md)**
+
+### I have a problem
+→ **[docs/operations/TROUBLESHOOTING.md](docs/operations/TROUBLESHOOTING.md)**
 
 ---
 
-## Technology Stack
+## Key Stats
 
-- **API Framework:** FastAPI (Python 3.11)
-- **Database:** TimescaleDB (PostgreSQL with time-series extension)
-- **Data Source:** Polygon.io
-- **Deployment:** Docker & Docker Compose
-- **Scheduler:** APScheduler (daily auto-backfill)
-- **Dashboard:** HTML5 + CSS3 + Vanilla JavaScript
-
----
-
-## Support
-
-**Questions?**
-1. Check the relevant documentation above
-2. See **[API_ENDPOINTS.md](API_ENDPOINTS.md)** for API questions
-3. See **[INSTALLATION.md](INSTALLATION.md)** for setup questions
-4. See **[OPERATIONS.md](OPERATIONS.md)** for operational questions
-5. Check logs: `docker-compose logs -f`
-
-**Documentation is canonical.** If you find something unclear, it's a docs bug — update it and commit.
+| Metric | Value |
+|--------|-------|
+| Total Tests | 347 |
+| Pass Rate | 100% |
+| API Endpoints | 25+ |
+| Supported Symbols | 15+ stocks + crypto |
+| Status | Production Ready ✅ |
 
 ---
 
 ## Project Phases
 
-| Phase | Focus | Status | Tests | Date |
-|-------|-------|--------|-------|------|
-| **1** | Testing & Validation | ✅ Complete | 50 | Nov 9 |
-| **2** | Error Handling & Data Quality | ✅ Complete | 88 | Nov 9 |
-| **3** | Deployment & Production | ✅ Complete | N/A | Nov 10 |
-| **4** | Observability & Monitoring | ✅ Complete | 29 | Nov 10 |
-| **5** | Load Testing & Performance | ✅ Complete | 13 | Nov 10 |
+| Phase | Focus | Status |
+|-------|-------|--------|
+| 1-5 | Testing, Error Handling, Observability, Performance | ✅ Complete |
+| 6.1 | Database Initialization | ✅ Complete |
+| 6.2 | API Key Management | ✅ Complete |
+| 6.3 | Symbol Management | ✅ Complete |
+| 6.4 | Comprehensive Tests | ✅ Complete |
+| 6.5 | Crypto Support | ✅ Complete |
+| 6.6 | Documentation | 🚀 In Progress |
 
-**Total Tests:** 208 all passing  
-**Overall Status:** Production Ready - Running
+See `.phases/` directory for phase completion details.
+
+---
+
+## Technology Stack
+
+- **API:** FastAPI (Python 3.11)
+- **Database:** PostgreSQL with TimescaleDB
+- **Data:** Polygon.io
+- **Deployment:** Docker & Docker Compose
+- **Testing:** pytest (347 tests)
+- **Monitoring:** JSON logging, metrics, alerts
+
+---
+
+## Key Endpoints
+
+Once running at `http://localhost:8000`:
+
+- `GET /health` — API health check
+- `GET /docs` — Interactive API documentation
+- `GET /api/v1/status` — Full system status
+- `GET /api/v1/metrics` — Monitoring data
+- `GET /dashboard/` — Web UI
+
+---
+
+## Support
+
+**Have a question?**
+1. Check [docs/reference/FAQ.md](docs/reference/FAQ.md)
+2. See [docs/operations/TROUBLESHOOTING.md](docs/operations/TROUBLESHOOTING.md)
+3. Review [DEPLOYMENT.md](DEPLOYMENT.md) for setup issues
+
+**Is documentation wrong or unclear?** Update it and commit. Documentation is canonical.
 
 ---
 
 ## Archived Documentation
 
-The `.archive/` folder contains historical documentation from development:
+Historical documents are in `.archive/` and `.phases/`:
 - Week-by-week progress notes
-- Deployment checklists from earlier phases
+- Deployment checklists
 - Dashboard implementation docs
-- Project planning documents
+- Phase completion summaries
 
-These are kept for historical reference.
-
-**For current operations, refer only to the files listed at the top of this page.**
-
----
-
-## Version History
-
-**v2.1 - November 9, 2025 (Phase 5 Complete)**
-- Updated for Phase 5 completion (load testing, caching, performance)
-- Added performance monitoring endpoints
-- Removed references to missing docs
-
-**v2.0 - November 2025 (Consolidated)**
-- Consolidated 24 files into 5 focused documents
-- Improved navigation and organization
-
-**v1.0 - Original Documentation**
-- See `.archive/` for historical versions
-
----
-
-**Last Updated:** November 9, 2025  
-**Overall Status:** ✅ Production Ready - All 208 Tests Passing
+**Current operations should reference only the files listed above.**
