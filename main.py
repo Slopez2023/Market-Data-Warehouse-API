@@ -11,6 +11,14 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
+# Ensure .env variables are loaded when running locally
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except Exception:
+    # dotenv is optional at runtime; uvicorn also auto-loads .env when available
+    pass
+
 from src.config import config
 from src.scheduler import AutoBackfillScheduler, get_last_backfill_result, get_last_backfill_time
 from src.services.database_service import DatabaseService
@@ -123,6 +131,12 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# Mount dashboard FIRST (before middleware)
+dashboard_path = os.path.join(os.path.dirname(__file__), "dashboard")
+if os.path.isdir(dashboard_path):
+    app.mount("/dashboard", StaticFiles(directory=dashboard_path, html=True), name="dashboard")
+    logger.info("Dashboard mounted at /dashboard")
+
 # Initialize observability services
 init_metrics(retention_hours=24)
 init_query_cache(max_size=1000, default_ttl=300)
@@ -169,11 +183,25 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount dashboard (if it exists)
-dashboard_path = os.path.join(os.path.dirname(__file__), "dashboard")
-if os.path.isdir(dashboard_path):
-    app.mount("/dashboard", StaticFiles(directory=dashboard_path, html=True), name="dashboard")
-    logger.info("Dashboard mounted at /dashboard")
+
+@app.get("/")
+async def root():
+    """Root endpoint - redirects to dashboard"""
+    return JSONResponse({
+        "name": "Market Data API",
+        "version": "1.0.0",
+        "description": "Validated OHLCV warehouse (stocks & crypto)",
+        "dashboard": "/dashboard/index.html",
+        "docs": "/docs",
+        "authentication": "X-API-Key header required for /api/v1/admin/* endpoints",
+        "endpoints": {
+            "health": "/health",
+            "status": "/api/v1/status",
+            "historical": "/api/v1/historical/{symbol}",
+            "symbols": "/api/v1/symbols",
+            "metrics": "/api/v1/metrics",
+        }
+    })
 
 
 @app.options("/{full_path:path}")
@@ -953,37 +981,7 @@ async def shutdown_event():
     logger.info("Additional shutdown tasks completed")
 
 
-# Root endpoint
-@app.get("/")
-async def root():
-    """API documentation and status"""
-    return {
-        "name": "Market Data API",
-        "version": "1.0.0",
-        "description": "Validated OHLCV warehouse (stocks & crypto)",
-        "dashboard": "/dashboard",
-        "docs": "/docs",
-        "authentication": "X-API-Key header required for /api/v1/admin/* endpoints",
-        "endpoints": {
-            "health": "/health",
-            "status": "/api/v1/status",
-            "historical": "/api/v1/historical/{symbol}",
-            "symbols": "/api/v1/symbols",
-            "metrics": "/api/v1/metrics",
-            "observability_metrics": "/api/v1/observability/metrics",
-            "observability_alerts": "/api/v1/observability/alerts",
-            "performance_cache": "/api/v1/performance/cache",
-            "performance_queries": "/api/v1/performance/queries",
-            "performance_summary": "/api/v1/performance/summary"
-        },
-        "admin_endpoints": {
-            "add_symbol": "POST /api/v1/admin/symbols",
-            "list_symbols": "GET /api/v1/admin/symbols",
-            "get_symbol": "GET /api/v1/admin/symbols/{symbol}",
-            "update_symbol": "PUT /api/v1/admin/symbols/{symbol}",
-            "remove_symbol": "DELETE /api/v1/admin/symbols/{symbol}"
-        }
-    }
+
 
 
 if __name__ == "__main__":

@@ -10,7 +10,7 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD}
       POSTGRES_DB: market_data
     ports:
-      - "5433:5432"
+      - "5432:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
       - ../database/sql/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
@@ -45,7 +45,7 @@ services:
     env_file:
       - ../config/.env
     ports:
-      - "3000:80"
+      - "3001:80"
     volumes:
       - ../dashboard:/usr/share/nginx/html:ro
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro

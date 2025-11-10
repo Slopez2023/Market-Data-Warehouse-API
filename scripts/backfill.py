@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """
 Manual backfill script for historical data.
-Fetches 5+ years of data for major US stocks.
+Defaults to ~5 years for a set of large-cap symbols, but can be
+parameterized via CLI flags to fetch specific symbols and date ranges.
 """
 
 import asyncio
 import logging
 import os
 from datetime import datetime, timedelta
+import argparse
 from dotenv import load_dotenv
 
 from src.clients.polygon_client import PolygonClient
@@ -121,8 +123,47 @@ async def backfill_symbol(
         return 0, 1
 
 
+def _parse_args():
+    parser = argparse.ArgumentParser(description="One-off historical backfill")
+    parser.add_argument(
+        "--symbols",
+        type=str,
+        default=",".join(DEFAULT_SYMBOLS),
+        help="Comma-separated list of symbols (e.g. AAPL,MSFT,SPY)"
+    )
+    parser.add_argument(
+        "--start",
+        type=str,
+        default=START_DATE.strftime("%Y-%m-%d"),
+        help="Start date (YYYY-MM-DD). Defaults to ~5 years ago"
+    )
+    parser.add_argument(
+        "--end",
+        type=str,
+        default=END_DATE.strftime("%Y-%m-%d"),
+        help="End date (YYYY-MM-DD). Defaults to today (UTC)"
+    )
+    return parser.parse_args()
+
+
 async def main():
-    """Run backfill for all symbols"""
+    """Run backfill for requested symbols"""
+    args = _parse_args()
+    try:
+        start_dt = datetime.strptime(args.start, "%Y-%m-%d").date()
+        end_dt = datetime.strptime(args.end, "%Y-%m-%d").date()
+    except ValueError:
+        logger.error("Invalid --start or --end date. Use YYYY-MM-DD format.")
+        return
+
+    if start_dt > end_dt:
+        logger.error("Start date must be <= end date")
+        return
+
+    requested_symbols = [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
+    if not requested_symbols:
+        logger.error("No symbols provided")
+        return
     # Initialize services
     polygon_api_key = os.getenv("POLYGON_API_KEY")
     db_password = os.getenv("DB_PASSWORD", "password")
@@ -139,22 +180,22 @@ async def main():
     validation_service = ValidationService()
     db_service = DatabaseService(database_url)
     
-    logger.info(f"Starting backfill for {len(DEFAULT_SYMBOLS)} symbols")
-    logger.info(f"Date range: {START_DATE} to {END_DATE}")
+    logger.info(f"Starting backfill for {len(requested_symbols)} symbols")
+    logger.info(f"Date range: {start_dt} to {end_dt}")
     logger.info("-" * 60)
     
     total_inserted = 0
     total_failed = 0
     
     # Backfill each symbol
-    for symbol in DEFAULT_SYMBOLS:
+    for symbol in requested_symbols:
         inserted, failed = await backfill_symbol(
             symbol,
             polygon_client,
             validation_service,
             db_service,
-            START_DATE,
-            END_DATE
+            start_dt,
+            end_dt
         )
         total_inserted += inserted
         total_failed += failed

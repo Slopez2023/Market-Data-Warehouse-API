@@ -4,7 +4,7 @@ import logging
 from typing import List, Optional, Dict
 from datetime import datetime
 import time
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, text, bindparam
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import QueuePool
 
@@ -155,33 +155,38 @@ class DatabaseService:
         session = self.SessionLocal()
         
         try:
-            query = text("""
+            # Build WHERE clause conditions
+            conditions = [
+                "symbol = :symbol",
+                "time >= :start_date::timestamp",
+                "time < :end_date::timestamp + INTERVAL '1 day'"
+            ]
+            
+            if validated_only:
+                conditions.append("validated = TRUE")
+            
+            if min_quality > 0:
+                conditions.append(f"quality_score >= {min_quality}")
+            
+            where_clause = " AND ".join(conditions)
+            
+            sql = f"""
                 SELECT 
                     time, symbol, open, high, low, close, volume,
                     source, validated, quality_score, validation_notes,
                     gap_detected, volume_anomaly, fetched_at
                 FROM market_data
-                WHERE symbol = :symbol
-                  AND time >= :start_date::timestamp
-                  AND time < :end_date::timestamp + INTERVAL '1 day'
-            """)
+                WHERE {where_clause}
+                ORDER BY time ASC
+            """
             
-            params = {
+            query = text(sql)
+            
+            result = session.execute(query, {
                 'symbol': symbol,
                 'start_date': start,
                 'end_date': end
-            }
-            
-            # Add optional filters
-            if validated_only:
-                query = text(query.text + " AND validated = TRUE")
-            
-            if min_quality > 0:
-                query = text(query.text + f" AND quality_score >= {min_quality}")
-            
-            query = text(query.text + " ORDER BY time ASC")
-            
-            result = session.execute(query, params)
+            })
             rows = result.fetchall()
             
             # Convert to list of dicts
