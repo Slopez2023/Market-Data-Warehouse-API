@@ -186,12 +186,16 @@ app.add_middleware(
 
 @app.get("/")
 async def root():
-    """Root endpoint - redirects to dashboard"""
+    """Root endpoint - serves dashboard info"""
+    # Check if Accept header prefers HTML (browser request)
+    from fastapi import Request
+    # Return JSON by default, browsers should navigate to /dashboard
     return JSONResponse({
         "name": "Market Data API",
         "version": "1.0.0",
         "description": "Validated OHLCV warehouse (stocks & crypto)",
         "dashboard": "/dashboard/index.html",
+        "dashboard_direct": "/dashboard/",
         "docs": "/docs",
         "authentication": "X-API-Key header required for /api/v1/admin/* endpoints",
         "endpoints": {

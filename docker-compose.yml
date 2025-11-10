@@ -1,0 +1,49 @@
+version: '3.9'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: market_data_db
+    environment:
+      POSTGRES_USER: market_data_user
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-change_me_in_production}
+      POSTGRES_DB: market_data
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U market_data_user"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build: .
+    container_name: market_data_api
+    environment:
+      DATABASE_URL: postgresql://market_data_user:${DB_PASSWORD:-change_me_in_production}@postgres:5432/market_data
+      POLYGON_API_KEY: ${POLYGON_API_KEY:?Set POLYGON_API_KEY in .env}
+      API_HOST: 0.0.0.0
+      API_PORT: 8000
+      API_WORKERS: 4
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      BACKFILL_SCHEDULE_HOUR: 2
+      BACKFILL_SCHEDULE_MINUTE: 0
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./src:/app/src
+      - ./dashboard:/app/dashboard
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    command: python main.py
+
+volumes:
+  postgres_data:
