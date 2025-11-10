@@ -6,9 +6,10 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Dict, List
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Response
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 
 from src.config import config
 from src.scheduler import AutoBackfillScheduler, get_last_backfill_result, get_last_backfill_time
@@ -155,9 +156,18 @@ if os.getenv("ALERT_EMAIL_ENABLED", "false").lower() == "true":
     except Exception as e:
         logger.warning("Failed to configure email alerts", extra={"error": str(e)})
 
-# Add middleware
+# Add middleware (CORS must be added last to be processed first)
 app.add_middleware(APIKeyAuthMiddleware)
 app.add_middleware(ObservabilityMiddleware)
+
+# Add CORS middleware last (processes requests first)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Mount dashboard (if it exists)
 dashboard_path = os.path.join(os.path.dirname(__file__), "dashboard")
@@ -166,14 +176,32 @@ if os.path.isdir(dashboard_path):
     logger.info("Dashboard mounted at /dashboard")
 
 
-@app.get("/health", response_model=HealthResponse)
+@app.options("/{full_path:path}")
+async def preflight(full_path: str):
+    """Handle CORS preflight requests"""
+    return JSONResponse(
+        content={},
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization, X-API-Key",
+        }
+    )
+
+
+@app.get("/health")
 async def health():
     """System health check"""
-    return {
-        "status": "healthy",
-        "timestamp": datetime.utcnow().isoformat(),
-        "scheduler_running": scheduler.scheduler.running
-    }
+    return JSONResponse(
+        content={
+            "status": "healthy",
+            "timestamp": datetime.utcnow().isoformat(),
+            "scheduler_running": scheduler.scheduler.running
+        },
+        headers={
+            "Access-Control-Allow-Origin": "*",
+        }
+    )
 
 
 @app.get("/api/v1/status")
@@ -189,22 +217,27 @@ async def get_status():
     try:
         metrics = db.get_status_metrics()
         
-        return {
-            "api_version": "1.0.0",
-            "status": "healthy",
-            "database": {
-                "symbols_available": metrics.get("symbols_available", 0),
-                "latest_data": metrics.get("latest_data"),
-                "total_records": metrics.get("total_records", 0),
-                "validated_records": metrics.get("validated_records", 0),
-                "validation_rate_pct": metrics.get("validation_rate_pct", 0)
+        return JSONResponse(
+            content={
+                "api_version": "1.0.0",
+                "status": "healthy",
+                "database": {
+                    "symbols_available": metrics.get("symbols_available", 0),
+                    "latest_data": metrics.get("latest_data"),
+                    "total_records": metrics.get("total_records", 0),
+                    "validated_records": metrics.get("validated_records", 0),
+                    "validation_rate_pct": metrics.get("validation_rate_pct", 0)
+                },
+                "data_quality": {
+                    "records_with_gaps_flagged": metrics.get("records_with_gaps_flagged", 0),
+                    "scheduler_status": "running" if scheduler.scheduler.running else "stopped",
+                    "last_backfill": "check backfill_history table for details"
+                }
             },
-            "data_quality": {
-                "records_with_gaps_flagged": metrics.get("records_with_gaps_flagged", 0),
-                "scheduler_status": "running" if scheduler.scheduler.running else "stopped",
-                "last_backfill": "check backfill_history table for details"
+            headers={
+                "Access-Control-Allow-Origin": "*",
             }
-        }
+        )
     
     except Exception as e:
         logger.error(f"Status check error: {e}")

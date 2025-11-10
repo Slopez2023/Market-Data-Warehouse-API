@@ -5,7 +5,7 @@
 
 // Configuration
 const CONFIG = {
-    API_BASE: window.location.origin, // nginx proxies to api:8000
+    API_BASE: 'http://localhost:8080', // API running locally
     REFRESH_INTERVAL: 10000, // 10 seconds
     RETRY_DELAY: 5000, // 5 seconds
     MAX_RETRIES: 3
