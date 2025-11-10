@@ -207,7 +207,7 @@ class APIKeyService:
             }
         
         except Exception as e:
-            logger.error("API key creation error", extra={"name": name, "error": str(e)})
+            logger.error("API key creation error", extra={"name": name, "error": str(e)}, exc_info=True)
             return {}
     
     async def list_api_keys(self, active_only: bool = False) -> List[Dict[str, Any]]:
