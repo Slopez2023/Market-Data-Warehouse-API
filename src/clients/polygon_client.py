@@ -89,6 +89,10 @@ class PolygonClient:
             logger.error(f"Unexpected error fetching {symbol}: {e}")
             raise
     
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10)
+    )
     async def fetch_crypto_daily_range(
         self,
         symbol: str,
