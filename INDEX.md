@@ -1,23 +1,28 @@
 # Market Data API - Documentation Index
 
 **Status:** Production Ready  
-**Last Updated:** November 2025  
-**Documentation Version:** 2.0 (Consolidated)
+**Last Updated:** November 9, 2025  
+**Documentation Version:** 2.1 (Phase 5 Complete)
 
 ---
 
 ## Quick Navigation
 
-### 📖 Start Here (Everyone)
-- **[README.md](README.md)** — Overview, key features, quick start (10 min read)
+### 📖 Development & Status
+- **[DEVELOPMENT_STATUS.md](DEVELOPMENT_STATUS.md)** — Current project phase, test coverage, production status (15 min read)
+- **[PHASE_5_SUMMARY.md](PHASE_5_SUMMARY.md)** — Latest phase completion summary (5 min read)
 
-### 🔧 For Developers & API Users
-- **[API_ENDPOINTS.md](API_ENDPOINTS.md)** — Complete API reference with examples (15 min read)
-- **[QUICK_REFERENCE.md](QUICK_REFERENCE.md)** — Command cheat sheet (2 min)
+### 📊 For Monitoring & Performance
+- **[OBSERVABILITY.md](OBSERVABILITY.md)** — Logging, metrics, and alerts guide (25 min read)
+- **[OBSERVABILITY_QUICKSTART.md](OBSERVABILITY_QUICKSTART.md)** — Quick observability setup (10 min)
+- **[PERFORMANCE_QUICK_REFERENCE.md](PERFORMANCE_QUICK_REFERENCE.md)** — Performance monitoring cheat sheet (5 min)
 
-### 🚀 For Deployment & Operations
-- **[INSTALLATION.md](INSTALLATION.md)** — Setup for local dev & production (30 min read)
-- **[OPERATIONS.md](OPERATIONS.md)** — Daily operations, monitoring, maintenance (20 min read)
+### 📚 Phase Documentation (Historical Reference)
+- **[PHASE_1_COMPLETE.md](PHASE_1_COMPLETE.md)** — Testing framework and validation suite (10 min)
+- **[PHASE_2_COMPLETE.md](PHASE_2_COMPLETE.md)** — Error handling and data quality (15 min)
+- **[PHASE_2_SUMMARY.md](PHASE_2_SUMMARY.md)** — Quick Phase 2 summary (5 min)
+- **[PHASE_4_COMPLETE.md](PHASE_4_COMPLETE.md)** — Observability and monitoring (15 min)
+- **[PHASE_5_COMPLETE.md](PHASE_5_COMPLETE.md)** — Load testing and performance optimization (20 min)
 
 ---
 
@@ -25,55 +30,57 @@
 
 | Document | Purpose | Audience | Time |
 |----------|---------|----------|------|
-| **README.md** | Project overview, features, architecture, quick start | Everyone | 10 min |
-| **API_ENDPOINTS.md** | Complete endpoint reference with code examples | Developers | 15 min |
-| **INSTALLATION.md** | Local setup and production deployment guides | DevOps | 30 min |
-| **OPERATIONS.md** | Daily operations, monitoring, troubleshooting | Operators | 20 min |
-| **QUICK_REFERENCE.md** | Command reference and FAQ | Daily users | 2 min |
+| **DEVELOPMENT_STATUS.md** | Project phases, test coverage, production readiness | Everyone | 15 min |
+| **PHASE_5_SUMMARY.md** | Latest features and performance baselines | Developers | 5 min |
+| **OBSERVABILITY.md** | Metrics, logging, and alerting guide | Operators | 25 min |
+| **OBSERVABILITY_QUICKSTART.md** | Quick observability setup | Operators | 10 min |
+| **PERFORMANCE_QUICK_REFERENCE.md** | Performance endpoint reference | Performance teams | 5 min |
+| **PHASE_*.md** | Historical phase documentation | Reference | Varies |
 
 ---
 
 ## Common Workflows
 
-### I Want to Get Started Quickly
+### I Want to Understand Current Status
 
-1. Read **[README.md](README.md)** (what it is, key features)
-2. Follow **[INSTALLATION.md](INSTALLATION.md)** Quick Start section
-3. Access dashboard at `http://localhost:8000/dashboard`
+1. Read **[DEVELOPMENT_STATUS.md](DEVELOPMENT_STATUS.md)** for phase overview
+2. Check **[PHASE_5_SUMMARY.md](PHASE_5_SUMMARY.md)** for latest features
+3. Run: `pytest tests/ -v` to verify all tests pass
 
-**Time:** 15 minutes
+**Time:** 10 minutes
 
-### I Need to Deploy to Production
+### I Need to Monitor System Health
 
-1. Read **[INSTALLATION.md](INSTALLATION.md)** - Production Deployment section
-2. Configure environment variables
-3. Set up systemd service
-4. Configure backups
-5. Verify with **[OPERATIONS.md](OPERATIONS.md)** health checks
+1. Read **[OBSERVABILITY_QUICKSTART.md](OBSERVABILITY_QUICKSTART.md)** for setup
+2. Check endpoints:
+   - `curl http://localhost:8000/health` — API health
+   - `curl http://localhost:8000/api/v1/status` — System status
+   - `curl http://localhost:8000/api/v1/observability/metrics` — Performance metrics
 
-**Time:** 45 minutes
+**Time:** 5 minutes
 
-### I Need to Use the API
+### I Need Performance Details
 
-1. Read **[README.md](README.md)** - API Reference section (quick overview)
-2. Detailed reference: **[API_ENDPOINTS.md](API_ENDPOINTS.md)**
-3. Interactive docs: `http://localhost:8000/docs` (when running)
+1. Read **[PERFORMANCE_QUICK_REFERENCE.md](PERFORMANCE_QUICK_REFERENCE.md)**
+2. Run: `python scripts/load_test_runner.py` for load testing
+3. Check `/api/v1/performance/summary` endpoint
 
-**Time:** 10-15 minutes
+**Time:** 10 minutes
 
-### I Need Daily Operational Guidance
+### I Need Full Monitoring Setup
 
-1. Morning check: **[OPERATIONS.md](OPERATIONS.md)** - Daily Operations
-2. Common tasks: **[OPERATIONS.md](OPERATIONS.md)** - Common Maintenance Tasks
-3. Quick commands: **[QUICK_REFERENCE.md](QUICK_REFERENCE.md)**
+1. Read **[OBSERVABILITY.md](OBSERVABILITY.md)** - Comprehensive guide
+2. Configure alert handlers in config
+3. Monitor endpoints in **[OBSERVABILITY_QUICKSTART.md](OBSERVABILITY_QUICKSTART.md)**
 
-**Time:** Ongoing
+**Time:** 30 minutes
 
-### I'm Troubleshooting an Issue
+### I'm Troubleshooting Performance Issues
 
-1. Check **[OPERATIONS.md](OPERATIONS.md)** - Troubleshooting & Alerts section
-2. Check **[INSTALLATION.md](INSTALLATION.md)** - Troubleshooting section
-3. Review logs: `docker-compose logs -f api`
+1. Check **[PERFORMANCE_QUICK_REFERENCE.md](PERFORMANCE_QUICK_REFERENCE.md)** for endpoints
+2. Review metrics: `curl http://localhost:8000/api/v1/performance/summary | jq .`
+3. Review alerts: `curl http://localhost:8000/api/v1/observability/alerts`
+4. Check logs: `docker-compose logs -f api`
 
 ---
 
@@ -81,19 +88,29 @@
 
 ```
 Market-Data-Warehouse-API/
-├── README.md                    ← Start here (overview + quick start)
-├── API_ENDPOINTS.md             ← API reference documentation
-├── INSTALLATION.md              ← Deployment & setup guide
-├── OPERATIONS.md                ← Day-to-day operations guide
-├── QUICK_REFERENCE.md           ← Command cheat sheet
-├── INDEX.md                     ← This file
-├── .archive/                    ← Historical docs (for reference only)
-├── src/                         ← Application source code
-├── dashboard/                   ← Web UI (HTML/CSS/JS)
-├── sql/                         ← Database schema
-├── docker-compose.yml           ← Docker configuration
-├── .env.example                 ← Environment template
-└── requirements.txt             ← Python dependencies
+├── DEVELOPMENT_STATUS.md        ← Current phase and production status
+├── PHASE_5_SUMMARY.md          ← Latest feature summary
+├── INDEX.md                    ← This file (documentation index)
+├── OBSERVABILITY.md            ← Monitoring and logging guide
+├── OBSERVABILITY_QUICKSTART.md ← Quick observability setup
+├── PERFORMANCE_QUICK_REFERENCE.md ← Performance endpoints reference
+├── PHASE_*_COMPLETE.md         ← Historical phase documentation
+├── .archive/                   ← Historical docs (for reference only)
+├── src/                        ← Application source code
+│   ├── services/               ← Business logic and utilities
+│   ├── clients/                ← External API clients
+│   ├── config.py               ← Configuration
+│   ├── middleware.py           ← Request/response middleware
+│   ├── models.py               ← Data models
+│   └── scheduler.py            ← Background job scheduler
+├── tests/                      ← Test suite (208 total tests)
+├── dashboard/                  ← Web UI (HTML/CSS/JS)
+├── scripts/                    ← Utility scripts
+├── database/                   ← Database initialization
+├── docker-compose.yml          ← Docker configuration
+├── main.py                     ← Application entry point
+├── conftest.py                 ← Pytest configuration
+└── requirements.txt            ← Python dependencies
 ```
 
 ---
@@ -103,8 +120,12 @@ Market-Data-Warehouse-API/
 **Once running:**
 
 - **API Health:** `curl http://localhost:8000/health`
-- **Status Metrics:** `curl http://localhost:8000/api/v1/status`
-- **Dashboard:** `http://localhost:8000/dashboard` (browser)
+- **System Status:** `curl http://localhost:8000/api/v1/status`
+- **Observability Metrics:** `curl http://localhost:8000/api/v1/observability/metrics`
+- **Performance Summary:** `curl http://localhost:8000/api/v1/performance/summary`
+- **Cache Stats:** `curl http://localhost:8000/api/v1/performance/cache`
+- **Query Performance:** `curl http://localhost:8000/api/v1/performance/queries`
+- **Alert History:** `curl http://localhost:8000/api/v1/observability/alerts`
 - **API Docs:** `http://localhost:8000/docs` (interactive Swagger UI)
 
 ---
@@ -133,15 +154,30 @@ Market-Data-Warehouse-API/
 
 ---
 
+## Project Phases
+
+| Phase | Focus | Status | Tests | Date |
+|-------|-------|--------|-------|------|
+| **1** | Testing & Validation | ✅ Complete | 50 | Nov 9 |
+| **2** | Error Handling & Data Quality | ✅ Complete | 88 | Nov 9 |
+| **3** | Deployment & Production | ✅ Complete | N/A | Nov 10 |
+| **4** | Observability & Monitoring | ✅ Complete | 29 | Nov 10 |
+| **5** | Load Testing & Performance | ✅ Complete | 13 | Nov 10 |
+
+**Total Tests:** 208 all passing  
+**Overall Status:** Production Ready - Running
+
+---
+
 ## Archived Documentation
 
 The `.archive/` folder contains historical documentation from development:
 - Week-by-week progress notes
 - Deployment checklists from earlier phases
-- Dashboard implementation docs (consolidated into OPERATIONS.md)
+- Dashboard implementation docs
 - Project planning documents
 
-These are kept for historical reference but are not part of the active documentation set.
+These are kept for historical reference.
 
 **For current operations, refer only to the files listed at the top of this page.**
 
@@ -149,15 +185,19 @@ These are kept for historical reference but are not part of the active documenta
 
 ## Version History
 
+**v2.1 - November 9, 2025 (Phase 5 Complete)**
+- Updated for Phase 5 completion (load testing, caching, performance)
+- Added performance monitoring endpoints
+- Removed references to missing docs
+
 **v2.0 - November 2025 (Consolidated)**
 - Consolidated 24 files into 5 focused documents
-- Removed redundancy and duplication
 - Improved navigation and organization
-- Kit hub ready
 
 **v1.0 - Original Documentation**
 - See `.archive/` for historical versions
 
 ---
 
-**Last Updated:** November 9, 2025
+**Last Updated:** November 9, 2025  
+**Overall Status:** ✅ Production Ready - All 208 Tests Passing
