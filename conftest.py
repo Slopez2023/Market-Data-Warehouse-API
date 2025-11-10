@@ -73,6 +73,12 @@ async def cleanup_test_data():
 
 
 @pytest.fixture
+def api_key():
+    """Polygon API key for testing"""
+    return "pk_test_abcd1234efgh5678ijkl9012mnop3456"
+
+
+@pytest.fixture
 def sample_candle():
     """Sample valid OHLCV candle for testing"""
     return {
