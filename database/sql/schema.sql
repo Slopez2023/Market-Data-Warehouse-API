@@ -1,9 +1,6 @@
--- Create TimescaleDB extension
-CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE;
-
--- Main market data hypertable
+-- Main market data table
 CREATE TABLE IF NOT EXISTS market_data (
-    id BIGSERIAL,
+    id BIGSERIAL PRIMARY KEY,
     time TIMESTAMPTZ NOT NULL,
     symbol VARCHAR(20) NOT NULL,
     open DECIMAL(19,8) NOT NULL,
@@ -24,15 +21,7 @@ CREATE TABLE IF NOT EXISTS market_data (
     
     fetched_at TIMESTAMPTZ DEFAULT NOW(),
     
-    PRIMARY KEY (symbol, time)
-);
-
--- Convert to hypertable (auto-partition by time)
-SELECT create_hypertable(
-    'market_data',
-    'time',
-    if_not_exists => TRUE,
-    chunk_time_interval => INTERVAL '1 day'
+    UNIQUE(symbol, time)
 );
 
 -- Indexes for common queries

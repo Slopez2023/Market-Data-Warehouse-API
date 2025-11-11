@@ -166,11 +166,15 @@ async def main():
         return
     # Initialize services
     polygon_api_key = os.getenv("POLYGON_API_KEY")
-    db_password = os.getenv("DB_PASSWORD", "password")
-    # Use Docker port-mapped database on 5433
-    db_host = os.getenv("DB_HOST", "127.0.0.1")
-    db_port = os.getenv("DB_PORT", "5433")
-    database_url = os.getenv("DATABASE_URL", f"postgresql://postgres:{db_password}@{db_host}:{db_port}/market_data")
+    # Get database URL - prefer explicit DATABASE_URL env var
+    database_url = os.getenv("DATABASE_URL")
+    if not database_url:
+        # Fallback: construct from individual components
+        db_user = os.getenv("DB_USER", "market_user")
+        db_password = os.getenv("DB_PASSWORD", "changeMe123")
+        db_host = os.getenv("DB_HOST", "localhost")
+        db_port = os.getenv("DB_PORT", "5432")
+        database_url = f"postgresql://{db_user}:{db_password}@{db_host}:{db_port}/market_data"
     
     if not polygon_api_key:
         logger.error("POLYGON_API_KEY not set in environment")

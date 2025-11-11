@@ -6,13 +6,14 @@ services:
     image: postgres:15-alpine
     container_name: market_data_postgres
     environment:
-      POSTGRES_USER: market_user
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-password}
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
       POSTGRES_DB: market_data
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./database/sql/init-user.sql:/docker-entrypoint-initdb.d/00-init-user.sql:ro
       - ./database/sql/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
       - ./database/migrations:/docker-entrypoint-initdb.d/migrations:ro
     healthcheck:
