@@ -89,9 +89,10 @@ class MigrationService:
             Dictionary mapping table name to existence boolean
         """
         required_tables = {
-            'tracked_symbols': ['id', 'symbol', 'asset_class', 'active'],
+            'tracked_symbols': ['id', 'symbol', 'asset_class', 'active', 'timeframes'],
             'api_keys': ['id', 'key_hash', 'name', 'active'],
-            'api_key_audit': ['id', 'api_key_id', 'endpoint', 'method']
+            'api_key_audit': ['id', 'api_key_id', 'endpoint', 'method'],
+            'market_data': ['id', 'symbol', 'time', 'open', 'high', 'low', 'close', 'volume', 'timeframe']
         }
         
         results = {}
