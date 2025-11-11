@@ -1,15 +1,17 @@
 """Pydantic models for request/response validation"""
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 from datetime import datetime
 from typing import List, Optional
 from decimal import Decimal
+from src.config import ALLOWED_TIMEFRAMES, DEFAULT_TIMEFRAMES
 
 
 class OHLCVData(BaseModel):
     """Single OHLCV candle"""
     time: datetime
     symbol: str
+    timeframe: str = "1d"
     open: Decimal
     high: Decimal
     low: Decimal
@@ -21,6 +23,13 @@ class OHLCVData(BaseModel):
     validation_notes: Optional[str] = None
     gap_detected: bool = False
     volume_anomaly: bool = False
+    
+    @validator('timeframe')
+    def validate_timeframe(cls, v):
+        """Validate timeframe is allowed"""
+        if v not in ALLOWED_TIMEFRAMES:
+            raise ValueError(f"Invalid timeframe: {v}. Allowed: {ALLOWED_TIMEFRAMES}")
+        return v
     
     class Config:
         json_encoders = {
@@ -59,15 +68,42 @@ class TrackedSymbol(BaseModel):
     symbol: str
     asset_class: str
     active: bool
+    timeframes: List[str] = DEFAULT_TIMEFRAMES
     date_added: Optional[datetime] = None
     last_backfill: Optional[datetime] = None
     backfill_status: str = "pending"
+    
+    @validator('timeframes')
+    def validate_timeframes(cls, v):
+        """Validate that all timeframes are allowed"""
+        if not v:
+            raise ValueError("At least one timeframe must be specified")
+        invalid = [tf for tf in v if tf not in ALLOWED_TIMEFRAMES]
+        if invalid:
+            raise ValueError(f"Invalid timeframes: {invalid}. Allowed: {ALLOWED_TIMEFRAMES}")
+        return v
 
 
 class AddSymbolRequest(BaseModel):
     """Request to add a new symbol"""
     symbol: str = Field(..., min_length=1, max_length=20)
     asset_class: str = Field(default="stock", description="stock, crypto, etf, etc.")
+
+
+class UpdateSymbolTimeframesRequest(BaseModel):
+    """Request to update a symbol's configured timeframes"""
+    timeframes: List[str] = Field(..., description="List of timeframes to fetch (e.g., ['1h', '1d', '4h'])")
+    
+    @validator('timeframes')
+    def validate_timeframes(cls, v):
+        """Validate that all timeframes are allowed"""
+        if not v:
+            raise ValueError("At least one timeframe must be specified")
+        invalid = [tf for tf in v if tf not in ALLOWED_TIMEFRAMES]
+        if invalid:
+            raise ValueError(f"Invalid timeframes: {invalid}. Allowed: {ALLOWED_TIMEFRAMES}")
+        # Remove duplicates and sort for consistency
+        return sorted(list(set(v)))
 
 
 class APIKeyResponse(BaseModel):

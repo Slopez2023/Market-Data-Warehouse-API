@@ -51,23 +51,42 @@ Current system only supports daily (1d) candles. This roadmap adds configurable 
 ---
 
 ## Phase 2: Update Data Models
-**Estimated**: 20 mins | **Status**: `todo`
+**Estimated**: 20 mins | **Status**: `completed` ✓
 
-- [ ] Update `TrackedSymbol` model
-  - Add field: `timeframes: List[str] = ['1h', '1d']`
+- [x] Update `TrackedSymbol` model
+  - Added field: `timeframes: List[str] = DEFAULT_TIMEFRAMES`
+  - Added validator to check against ALLOWED_TIMEFRAMES
   - File: `src/models.py`
 
-- [ ] Create `UpdateSymbolTimeframesRequest` model
+- [x] Create `UpdateSymbolTimeframesRequest` model
   - Field: `timeframes: List[str]`
-  - Validation: check against allowed list
+  - Validator: deduplicates and sorts
+  - Validator: checks against ALLOWED_TIMEFRAMES
+  - File: `src/models.py`
 
-- [ ] Create `TimeframeConfig` constant/enum
-  - Allowed: `['5m', '15m', '30m', '1h', '4h', '1d', '1w']`
-  - Store in `src/config.py`
+- [x] Update `OHLCVData` model
+  - Added field: `timeframe: str = "1d"`
+  - Added validator to check against ALLOWED_TIMEFRAMES
+  - File: `src/models.py`
+
+- [x] Create timeframe configuration constants
+  - `ALLOWED_TIMEFRAMES = ['5m', '15m', '30m', '1h', '4h', '1d', '1w']`
+  - `DEFAULT_TIMEFRAMES = ['1h', '1d']`
+  - File: `src/config.py`
+
+- [x] Update main.py imports
+  - Added `UpdateSymbolTimeframesRequest` to imports
+  - File: `main.py`
+
+- [x] Validation testing
+  - All models validate correctly
+  - Invalid timeframes rejected
+  - Deduplication and sorting works
 
 **Related Files**:
-- `src/models.py`
-- `src/config.py`
+- `src/models.py` (updated)
+- `src/config.py` (updated)
+- `main.py` (updated)
 
 ---
 
@@ -221,7 +240,13 @@ Current system only supports daily (1d) candles. This roadmap adds configurable 
   - Created 3 migration files (003, 004, 005)
   - Updated migration_service.py to verify new columns
   - Ready for Phase 2
-- [ ] Phase 2 started
+- [x] Phase 2 completed (2025-11-11 13:15 UTC)
+  - Updated TrackedSymbol with timeframes field
+  - Created UpdateSymbolTimeframesRequest model
+  - Added OHLCVData timeframe field
+  - Created ALLOWED_TIMEFRAMES and DEFAULT_TIMEFRAMES constants
+  - All validation tests passing
+  - Ready for Phase 3
 - [ ] Phase 3 started
 - [ ] Phase 4 started
 - [ ] Phase 5 started

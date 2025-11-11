@@ -25,7 +25,7 @@ from src.services.database_service import DatabaseService
 from src.models import (
     HealthResponse, StatusResponse, AddSymbolRequest, TrackedSymbol,
     APIKeyListResponse, APIKeyCreateResponse, AuditLogEntry, APIKeyAuditResponse,
-    CreateAPIKeyRequest, UpdateAPIKeyRequest
+    CreateAPIKeyRequest, UpdateAPIKeyRequest, UpdateSymbolTimeframesRequest
 )
 from src.services.structured_logging import setup_structured_logging, StructuredLogger, get_trace_id
 from src.services.metrics import init_metrics, get_metrics_collector
