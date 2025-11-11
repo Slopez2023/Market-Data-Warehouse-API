@@ -91,26 +91,41 @@ Current system only supports daily (1d) candles. This roadmap adds configurable 
 ---
 
 ## Phase 3: Refactor Polygon Client
-**Estimated**: 45 mins | **Status**: `todo`
+**Estimated**: 45 mins | **Status**: `completed` ✓
 
-- [ ] Create timeframe mapping utility
+- [x] Create timeframe mapping utility
+  - `TIMEFRAME_MAP` dictionary with all 7 timeframes
   - `5m` → multiplier=5, timespan='minute'
   - `1h` → multiplier=1, timespan='hour'
   - `1d` → multiplier=1, timespan='day'
   - `1w` → multiplier=1, timespan='week'
   - File: `src/clients/polygon_client.py`
 
-- [ ] Refactor `fetch_daily_range()` → `fetch_range()`
-  - New signature: `fetch_range(symbol, timeframe, start, end)`
-  - Support both stocks and crypto
-  - Keep retry logic
+- [x] Create `_get_timeframe_params()` helper method
+  - Converts timeframe code to Polygon API parameters
+  - Validates timeframe against TIMEFRAME_MAP
+  - Raises ValueError for unsupported timeframes
 
-- [ ] Update both stock and crypto endpoints
-  - Both use same aggs endpoint with dynamic timespan
-  - Test with multiple timeframes
+- [x] New `fetch_range()` method
+  - New signature: `fetch_range(symbol, timeframe, start, end)`
+  - Supports both stocks and crypto with same endpoint
+  - Uses dynamic multiplier/timespan from mapping
+  - Includes retry logic with exponential backoff
+  - Improved logging with timeframe context
+
+- [x] Keep legacy methods for backward compatibility
+  - `fetch_daily_range()` → calls `fetch_range(..., '1d', ...)`
+  - `fetch_crypto_daily_range()` → calls `fetch_range(..., '1d', ...)`
+  - Marked as DEPRECATED in docstrings
+
+- [x] Comprehensive testing
+  - All 7 timeframes map correctly
+  - Invalid timeframes rejected
+  - Legacy methods still callable
+  - Retry logic preserved
 
 **Related Files**:
-- `src/clients/polygon_client.py`
+- `src/clients/polygon_client.py` (refactored)
 
 ---
 
@@ -241,13 +256,18 @@ Current system only supports daily (1d) candles. This roadmap adds configurable 
   - Updated migration_service.py to verify new columns
   - Ready for Phase 2
 - [x] Phase 2 completed (2025-11-11 13:15 UTC)
-  - Updated TrackedSymbol with timeframes field
-  - Created UpdateSymbolTimeframesRequest model
-  - Added OHLCVData timeframe field
-  - Created ALLOWED_TIMEFRAMES and DEFAULT_TIMEFRAMES constants
-  - All validation tests passing
-  - Ready for Phase 3
-- [ ] Phase 3 started
+- Updated TrackedSymbol with timeframes field
+- Created UpdateSymbolTimeframesRequest model
+- Added OHLCVData timeframe field
+- Created ALLOWED_TIMEFRAMES and DEFAULT_TIMEFRAMES constants
+- All validation tests passing
+- Ready for Phase 3
+- [x] Phase 3 completed (2025-11-11 13:25 UTC)
+  - Created TIMEFRAME_MAP for Polygon API parameter conversion
+  - Implemented fetch_range() supporting all 7 timeframes
+  - Refactored legacy methods to use new fetch_range()
+  - All timeframe mapping tests passing
+  - Ready for Phase 4
 - [ ] Phase 4 started
 - [ ] Phase 5 started
 - [ ] Phase 6 started
