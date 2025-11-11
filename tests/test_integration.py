@@ -11,7 +11,14 @@ from unittest.mock import patch, AsyncMock
 from src.clients.polygon_client import PolygonClient
 from src.services.validation_service import ValidationService
 
-load_dotenv()
+# Load .env file from app root or /app directory
+env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
+if not os.path.exists(env_path):
+    env_path = '/app/.env'
+if os.path.exists(env_path):
+    load_dotenv(env_path)
+else:
+    load_dotenv()
 
 
 @pytest.fixture

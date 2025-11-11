@@ -7,10 +7,18 @@ import asyncpg
 from unittest.mock import patch
 from pathlib import Path
 
+# Detect if running inside Docker
+import socket
+def is_inside_docker():
+    """Check if code is running inside Docker container"""
+    return os.path.exists('/.dockerenv')
+
+# Set database host based on environment
+db_host = "database" if is_inside_docker() else "localhost"
+
 # Set test environment variables BEFORE importing any code that depends on config
-# Use the PostgreSQL container running on port 5433 for tests
 TEST_ENV_VARS = {
-    "DATABASE_URL": "postgresql://postgres:postgres@localhost:5433/market_data",
+    "DATABASE_URL": f"postgresql://market_user:changeMe123@{db_host}:5432/market_data",
     "POLYGON_API_KEY": "pk_test_abcd1234efgh5678ijkl9012mnop3456",
     "LOG_LEVEL": "DEBUG",
     "API_HOST": "127.0.0.1",

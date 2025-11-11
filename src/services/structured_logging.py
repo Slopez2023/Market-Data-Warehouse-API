@@ -2,6 +2,7 @@
 
 import json
 import logging
+import sys
 import uuid
 from datetime import datetime
 from typing import Any, Dict, Optional
@@ -46,6 +47,9 @@ class StructuredLogger:
         exc_info: bool = False,
     ) -> None:
         """Internal log method with extra data support"""
+        # Get actual exception info if exc_info is True
+        exc_info_tuple = sys.exc_info() if exc_info else None
+        
         record = self.logger.makeRecord(
             self.logger.name,
             level,
@@ -53,7 +57,7 @@ class StructuredLogger:
             0,
             message,
             (),
-            exc_info=exc_info if exc_info else None,
+            exc_info=exc_info_tuple,
         )
         if extra_data:
             record.extra_data = extra_data
