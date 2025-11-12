@@ -324,21 +324,13 @@ class AutoBackfillScheduler:
         """
         try:
             # Fetch from Polygon based on asset class and timeframe
-            if asset_class == "crypto":
-                candles = await self.polygon_client.fetch_range(
-                    symbol,
-                    timeframe,
-                    start_date.strftime('%Y-%m-%d'),
-                    end_date.strftime('%Y-%m-%d')
-                )
-            else:
-                # Handle stocks and ETFs with same endpoint
-                candles = await self.polygon_client.fetch_range(
-                    symbol,
-                    timeframe,
-                    start_date.strftime('%Y-%m-%d'),
-                    end_date.strftime('%Y-%m-%d')
-                )
+            candles = await self.polygon_client.fetch_range(
+                symbol,
+                timeframe,
+                start_date.strftime('%Y-%m-%d'),
+                end_date.strftime('%Y-%m-%d'),
+                is_crypto=(asset_class == "crypto")  # Pass asset class flag to normalize crypto symbols
+            )
             
             if not candles:
                 logger.warning(f"No data returned from Polygon for {symbol}")

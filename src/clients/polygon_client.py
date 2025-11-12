@@ -59,6 +59,37 @@ class PolygonClient:
             raise ValueError(f"Unsupported timeframe: {timeframe}. Supported: {list(TIMEFRAME_MAP.keys())}")
         return TIMEFRAME_MAP[timeframe]
     
+    @staticmethod
+    def _normalize_crypto_symbol(symbol: str, is_crypto: bool = False) -> str:
+        """
+        Normalize crypto symbols for Polygon API.
+        
+        Polygon crypto endpoint expects format like BTC (ticker only, no currency pair).
+        This function converts:
+        - BTC-USD → BTC
+        - BTCUSD → BTC
+        - BTC → BTC (already normalized)
+        
+        Args:
+            symbol: Symbol (e.g., 'BTC-USD', 'BTCUSD', 'BTC')
+            is_crypto: Whether this is a crypto symbol
+            
+        Returns:
+            Normalized symbol for Polygon API
+        """
+        if is_crypto:
+            # Remove any currency pair suffix
+            # BTC-USD → BTC, BTCUSD → BTC
+            symbol = symbol.split('-')[0]  # Remove -USD, -USDT, etc.
+            
+            # If still has USD/USDT suffix, remove it
+            for suffix in ['USD', 'USDT', 'USDC', 'BUSD', 'GBP', 'EUR']:
+                if symbol.endswith(suffix) and len(symbol) > len(suffix):
+                    symbol = symbol[:-len(suffix)]
+                    break
+        
+        return symbol
+    
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=2, max=10)
@@ -68,7 +99,8 @@ class PolygonClient:
         symbol: str,
         timeframe: str,
         start: str,
-        end: str
+        end: str,
+        is_crypto: bool = False
     ) -> List[Dict]:
         """
         Fetch OHLCV data for a symbol and timeframe from Polygon.
@@ -79,10 +111,11 @@ class PolygonClient:
         [{'t': timestamp_ms, 'o': open, 'h': high, 'l': low, 'c': close, 'v': volume, 'n': count}]
         
         Args:
-            symbol: Stock ticker (e.g., 'AAPL') or crypto pair (e.g., 'BTCUSD')
+            symbol: Stock ticker (e.g., 'AAPL') or crypto pair (e.g., 'BTC-USD', 'BTCUSD')
             timeframe: Timeframe code (e.g., '1h', '5m', '1d', '1w')
             start: Start date YYYY-MM-DD
             end: End date YYYY-MM-DD
+            is_crypto: Whether this is a crypto symbol (auto-detected if not specified)
         
         Returns:
             List of OHLCV candles
@@ -90,13 +123,20 @@ class PolygonClient:
         Raises:
             ValueError: If API error, rate limit, or invalid timeframe
         """
+        # Auto-detect crypto if not specified
+        if not is_crypto:
+            is_crypto = '-' in symbol or any(crypto in symbol.upper() for crypto in ['BTC', 'ETH', 'USDT', 'USDC'])
+        
+        # Normalize crypto symbols (BTC-USD → BTCUSD)
+        normalized_symbol = self._normalize_crypto_symbol(symbol, is_crypto)
+        
         # Get timeframe parameters
         tf_params = self._get_timeframe_params(timeframe)
         multiplier = tf_params['multiplier']
         timespan = tf_params['timespan']
         
         # v2 endpoint pattern: /v2/aggs/ticker/{symbol}/range/{multiplier}/{timespan}/{start}/{end}
-        url = f"{self.base_url}/aggs/ticker/{symbol}/range/{multiplier}/{timespan}/{start}/{end}"
+        url = f"{self.base_url}/aggs/ticker/{normalized_symbol}/range/{multiplier}/{timespan}/{start}/{end}"
         
         params = {
             "apiKey": self.api_key,

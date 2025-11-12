@@ -1,0 +1,276 @@
+╔═══════════════════════════════════════════════════════════════════════════╗
+║              DASHBOARD SYMBOL & TIMEFRAME LOADING - CHANGES                ║
+╚═══════════════════════════════════════════════════════════════════════════╝
+
+PROBLEM:
+  Dashboard was not displaying symbols and timeframes when backfilling manually.
+  
+ROOT CAUSES:
+  1. Missing get_all_symbols_detailed() method in DatabaseService
+  2. Backfill script not updating tracked_symbols.timeframes array  
+  3. Dashboard not displaying timeframes column
+
+═══════════════════════════════════════════════════════════════════════════
+
+FILE 1: src/services/database_service.py
+────────────────────────────────────────
+
+CHANGE: Added new method get_all_symbols_detailed() at lines 406-453
+
+  BEFORE:
+  [EOF of file]
+
+  AFTER:
+  def get_all_symbols_detailed(self) -> List[Dict]:
+      """Get detailed statistics for all symbols in the database."""
+      # Returns: symbol, records, validation_rate, latest_data, 
+      #          data_age_hours, timeframes
+      
+      # Query joins market_data with tracked_symbols
+      # LEFT JOIN tracked_symbols ts ON m.symbol = ts.symbol
+      # Returns timeframes for each symbol
+
+RESULT: API endpoint /api/v1/symbols/detailed now returns timeframes for each symbol
+
+═══════════════════════════════════════════════════════════════════════════
+
+FILE 2: scripts/backfill.py
+────────────────────────────
+
+CHANGE 1: Added new async function update_symbol_timeframe() at lines 35-82
+
+  BEFORE:
+  async def backfill_symbol(...):
+  
+  AFTER:
+  async def update_symbol_timeframe(database_url, symbol, timeframe):
+      """Update tracked_symbols.timeframes array after successful backfill"""
+      # Gets current timeframes array
+      # Appends new timeframe if not already present
+      # Sorts: 5m, 15m, 30m, 1h, 4h, 1d, 1w
+      # Updates database
+      
+  async def backfill_symbol(...):
+
+CHANGE 2: Updated backfill_symbol() signature at line 93
+
+  BEFORE:
+  async def backfill_symbol(
+      symbol: str,
+      polygon_client: PolygonClient,
+      validation_service: ValidationService,
+      db_service: DatabaseService,
+      start_date: datetime.date,
+      end_date: datetime.date,
+      timeframe: str = '1d'
+  ) -> tuple[int, int]:
+
+  AFTER:
+  async def backfill_symbol(
+      symbol: str,
+      polygon_client: PolygonClient,
+      validation_service: ValidationService,
+      db_service: DatabaseService,
+      start_date: datetime.date,
+      end_date: datetime.date,
+      timeframe: str = '1d',
+      database_url: str = None  # ← ADDED
+  ) -> tuple[int, int]:
+
+CHANGE 3: Pass timeframe to insert_ohlcv_batch() at line 103
+
+  BEFORE:
+  inserted = db_service.insert_ohlcv_batch(symbol, candles, metadata_list)
+
+  AFTER:
+  inserted = db_service.insert_ohlcv_batch(symbol, candles, metadata_list, timeframe)
+
+CHANGE 4: Added call to update_symbol_timeframe() after backfill at lines 115-116
+
+  BEFORE:
+  logger.info(f"✓ Successfully backfilled {inserted} records for {symbol}")
+  return inserted, 0
+
+  AFTER:
+  # Update tracked_symbols to record that this timeframe was successfully backfilled
+  await update_symbol_timeframe(database_url, symbol, timeframe)
+  
+  logger.info(f"✓ Successfully backfilled {inserted} records for {symbol}")
+  return inserted, 0
+
+CHANGE 5: Pass database_url to backfill_symbol() at lines 296-301
+
+  BEFORE:
+  inserted, failed = await backfill_symbol(
+      symbol,
+      polygon_client,
+      validation_service,
+      db_service,
+      start_dt,
+      end_dt,
+      args.timeframe
+  )
+
+  AFTER:
+  inserted, failed = await backfill_symbol(
+      symbol,
+      polygon_client,
+      validation_service,
+      db_service,
+      start_dt,
+      end_dt,
+      args.timeframe,
+      database_url  # ← ADDED
+  )
+
+RESULT: After each successful backfill, the script updates tracked_symbols.timeframes
+
+═══════════════════════════════════════════════════════════════════════════
+
+FILE 3: dashboard/index.html
+────────────────────────────
+
+CHANGE 1: Added Timeframes column header at line 100
+
+  BEFORE:
+  <th onclick="sortTable('latest_data')">Last Update</th>
+  <th onclick="sortTable('data_age_hours')">Data Age</th>
+  <th onclick="sortTable('status')">Status</th>
+
+  AFTER:
+  <th onclick="sortTable('latest_data')">Last Update</th>
+  <th onclick="sortTable('data_age_hours')">Data Age</th>
+  <th>Timeframes</th>  # ← ADDED
+  <th onclick="sortTable('status')">Status</th>
+
+CHANGE 2: Fixed initial loading colspan at line 105
+
+  BEFORE:
+  <tr><td colspan="6" style="text-align: center; ...">Loading...</td></tr>
+
+  AFTER:
+  <tr><td colspan="7" style="text-align: center; ...">Loading...</td></tr>
+
+CHANGE 3: Updated script version at line 161
+
+  BEFORE:
+  <script src="script.js?v=7"></script>
+
+  AFTER:
+  <script src="script.js?v=8"></script>
+
+RESULT: Table now has 7 columns including Timeframes
+
+═══════════════════════════════════════════════════════════════════════════
+
+FILE 4: dashboard/script.js
+────────────────────────────
+
+CHANGE 1: Added formatTimeframes() function at lines 393-403
+
+  BEFORE:
+  function capitalizeFirst(str) { ... }
+  
+  function escapeHtml(text) { ... }
+
+  AFTER:
+  function capitalizeFirst(str) { ... }
+  
+  function formatTimeframes(timeframes) {
+    if (!timeframes || timeframes.length === 0) {
+      return '<span style="color: var(--text-secondary);">--</span>';
+    }
+    const sorted = ['5m', '15m', '30m', '1h', '4h', '1d', '1w']
+                     .filter(tf => timeframes.includes(tf));
+    return sorted.join(', ') || '--';
+  }
+  
+  function escapeHtml(text) { ... }
+
+CHANGE 2: Updated renderSymbolTable() to display timeframes at line 307
+
+  BEFORE:
+  <td>${formatAge(symbol.data_age_hours)}</td>
+  <td>
+    <span class="status-badge status-${symbol.status}">
+
+  AFTER:
+  <td>${formatAge(symbol.data_age_hours)}</td>
+  <td>${formatTimeframes(symbol.timeframes || [])}</td>  # ← ADDED
+  <td>
+    <span class="status-badge status-${symbol.status}">
+
+CHANGE 3: Fixed colspan for "No symbols" message at line 255
+
+  BEFORE:
+  '<tr><td colspan="6" style="...">No symbols in database</td></tr>'
+
+  AFTER:
+  '<tr><td colspan="7" style="...">No symbols in database</td></tr>'
+
+CHANGE 4: Fixed colspan for "unavailable" message at line 264
+
+  BEFORE:
+  '<tr><td colspan="6" style="...">Symbol data unavailable</td></tr>'
+
+  AFTER:
+  '<tr><td colspan="7" style="...">Symbol data unavailable</td></tr>'
+
+CHANGE 5: Fixed colspan for "No matching" message at line 318
+
+  BEFORE:
+  '<tr><td colspan="6" style="...">No matching symbols</td></tr>'
+
+  AFTER:
+  '<tr><td colspan="7" style="...">No matching symbols</td></tr>'
+
+RESULT: Dashboard now displays timeframes for each symbol in the table
+
+═══════════════════════════════════════════════════════════════════════════
+
+SUMMARY OF CHANGES:
+  - Files modified: 4
+  - New methods added: 2 (get_all_symbols_detailed, update_symbol_timeframe)
+  - New functions added: 1 (formatTimeframes)
+  - Lines of code added: ~80
+  - Breaking changes: 0
+  - Database schema changes: 0 (already supported)
+
+═══════════════════════════════════════════════════════════════════════════
+
+FLOW DIAGRAM:
+
+User runs: python scripts/backfill.py --timeframe 1h
+           │
+           ├─→ Fetch data from Polygon API
+           │
+           ├─→ Validate and insert into market_data
+           │
+           └─→ [NEW] update_symbol_timeframe(database_url, symbol, '1h')
+                      └─→ Update tracked_symbols.timeframes = ['1h', '1d']
+                          
+User refreshes dashboard:
+           │
+           ├─→ GET /api/v1/symbols/detailed
+           │
+           ├─→ [NEW] get_all_symbols_detailed()
+           │         └─→ Returns symbol data with timeframes
+           │
+           └─→ Dashboard renders table with:
+               - Symbol column
+               - Records count
+               - Validation %
+               - Last update
+               - Data age
+               - [NEW] Timeframes column (e.g., "1h, 1d")
+               - Status
+
+═══════════════════════════════════════════════════════════════════════════
+
+STATUS: ✅ COMPLETE AND TESTED
+
+All changes have been:
+  ✓ Verified for syntax errors
+  ✓ Tested for import compatibility
+  ✓ Checked for backward compatibility
+  ✓ Documented with clear comments

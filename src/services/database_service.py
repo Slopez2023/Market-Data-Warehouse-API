@@ -402,3 +402,52 @@ class DatabaseService:
         
         finally:
             session.close()
+    
+    def get_all_symbols_detailed(self) -> List[Dict]:
+        """
+        Get detailed statistics for all symbols in the database.
+        
+        Returns:
+            List of dicts with: symbol, records, validation_rate, latest_data, data_age_hours, timeframes
+        """
+        session = self.SessionLocal()
+        
+        try:
+            # Query for per-symbol statistics from market_data
+            symbols_query = text("""
+                SELECT 
+                    m.symbol,
+                    COUNT(*) as records,
+                    COUNT(*) FILTER (WHERE m.validated = TRUE)::float / COUNT(*) * 100 as validation_rate,
+                    MAX(m.time) as latest_data,
+                    EXTRACT(EPOCH FROM (NOW() - MAX(m.time))) / 3600 as data_age_hours,
+                    COALESCE(ts.timeframes, ARRAY[]::text[]) as timeframes
+                FROM market_data m
+                LEFT JOIN tracked_symbols ts ON m.symbol = ts.symbol
+                GROUP BY m.symbol, ts.timeframes
+                ORDER BY m.symbol ASC
+            """)
+            
+            results = session.execute(symbols_query).fetchall()
+            
+            symbols_data = []
+            for row in results:
+                symbol, records, validation_rate, latest_data, data_age_hours, timeframes = row
+                symbols_data.append({
+                    "symbol": symbol,
+                    "records": int(records) if records else 0,
+                    "validation_rate": float(validation_rate) if validation_rate else 0.0,
+                    "latest_data": latest_data.isoformat() if latest_data else None,
+                    "data_age_hours": float(data_age_hours) if data_age_hours else 0.0,
+                    "timeframes": list(timeframes) if timeframes else []
+                })
+            
+            logger.info(f"Retrieved detailed stats for {len(symbols_data)} symbols")
+            return symbols_data
+        
+        except Exception as e:
+            logger.error(f"Error getting detailed symbol stats: {e}")
+            return []
+        
+        finally:
+            session.close()

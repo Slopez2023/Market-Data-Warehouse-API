@@ -252,7 +252,7 @@ async function updateSymbolGrid(status) {
     symbolTableState.allSymbols = data.symbols || [];
     
     if (symbolTableState.allSymbols.length === 0) {
-      container.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-secondary);">No symbols in database</td></tr>';
+      container.innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--text-secondary);">No symbols in database</td></tr>';
       updateSymbolCount(0, 0);
       return;
     }
@@ -261,7 +261,7 @@ async function updateSymbolGrid(status) {
     
   } catch (error) {
     console.warn("Could not load symbols:", error);
-    container.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-secondary);">Symbol data unavailable</td></tr>';
+    container.innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--text-secondary);">Symbol data unavailable</td></tr>';
   }
 }
 
@@ -304,6 +304,7 @@ function renderSymbolTable() {
       <td>${symbol.validation_rate.toFixed(1)}%</td>
       <td>${formatDate(symbol.latest_data)}</td>
       <td>${formatAge(symbol.data_age_hours)}</td>
+      <td>${formatTimeframes(symbol.timeframes || [])}</td>
       <td>
         <span class="status-badge status-${symbol.status}">
           ${getStatusIcon(symbol.status)} ${capitalizeFirst(symbol.status)}
@@ -312,7 +313,7 @@ function renderSymbolTable() {
     </tr>
   `).join('');
   
-  container.innerHTML = html || '<tr><td colspan="6" style="text-align: center; color: var(--text-secondary);">No matching symbols</td></tr>';
+  container.innerHTML = html || '<tr><td colspan="7" style="text-align: center; color: var(--text-secondary);">No matching symbols</td></tr>';
   updateSymbolCount(filtered.length, symbolTableState.allSymbols.length);
   updateSortIndicators();
 }
@@ -387,6 +388,17 @@ function formatAge(hours) {
   if (hours < 24) return `${Math.round(hours)}h`;
   const days = Math.floor(hours / 24);
   return `${days}d`;
+}
+
+/**
+ * Format timeframes array to readable string
+ */
+function formatTimeframes(timeframes) {
+  if (!timeframes || timeframes.length === 0) {
+    return '<span style="color: var(--text-secondary);">--</span>';
+  }
+  const sorted = ['5m', '15m', '30m', '1h', '4h', '1d', '1w'].filter(tf => timeframes.includes(tf));
+  return sorted.join(', ') || '--';
 }
 
 /**

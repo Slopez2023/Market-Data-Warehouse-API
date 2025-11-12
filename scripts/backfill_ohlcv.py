@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Manual backfill script for historical data.
-Backfills all active symbols from tracked_symbols table.
+Backfill OHLCV - Historical price and volume data.
+Backfills standard candlestick data for all active symbols from tracked_symbols table.
 Can be parameterized via CLI flags to filter symbols, set date ranges, and choose timeframe.
 """
 
@@ -32,6 +32,57 @@ END_DATE = datetime.utcnow().date()
 START_DATE = END_DATE - timedelta(days=365*5)
 
 
+async def update_symbol_timeframe(database_url: str, symbol: str, timeframe: str) -> bool:
+    """
+    Update tracked_symbols to include the backfilled timeframe.
+    
+    Args:
+        database_url: Database connection string
+        symbol: Stock ticker
+        timeframe: Timeframe that was backfilled (e.g., '1d', '1h')
+    
+    Returns:
+        True if successfully updated, False otherwise
+    """
+    try:
+        conn = await asyncpg.connect(database_url)
+        
+        # Get current timeframes
+        row = await conn.fetchrow(
+            "SELECT timeframes FROM tracked_symbols WHERE symbol = $1",
+            symbol
+        )
+        
+        if not row:
+            await conn.close()
+            return False
+        
+        current_timeframes = list(row['timeframes']) if row['timeframes'] else []
+        
+        # Add timeframe if not already present
+        if timeframe not in current_timeframes:
+            current_timeframes.append(timeframe)
+            # Sort for consistency
+            current_timeframes = sorted(
+                current_timeframes,
+                key=lambda x: (['5m', '15m', '30m', '1h', '4h', '1d', '1w'].index(x))
+            )
+            
+            await conn.execute(
+                "UPDATE tracked_symbols SET timeframes = $1 WHERE symbol = $2",
+                current_timeframes,
+                symbol
+            )
+            logger.info(f"Updated {symbol} timeframes to: {current_timeframes}")
+        
+        await conn.close()
+        return True
+    
+    except Exception as e:
+        logger.error(f"Error updating timeframes for {symbol}: {e}")
+        return False
+
+
 async def backfill_symbol(
     symbol: str,
     polygon_client: PolygonClient,
@@ -39,7 +90,8 @@ async def backfill_symbol(
     db_service: DatabaseService,
     start_date: datetime.date,
     end_date: datetime.date,
-    timeframe: str = '1d'
+    timeframe: str = '1d',
+    database_url: str = None
 ) -> tuple[int, int]:
     """
     Backfill data for a single symbol.
@@ -100,7 +152,7 @@ async def backfill_symbol(
             prev_close = candle.get('c')
         
         # Insert into database
-        inserted = db_service.insert_ohlcv_batch(symbol, candles, metadata_list)
+        inserted = db_service.insert_ohlcv_batch(symbol, candles, metadata_list, timeframe)
         
         # Log backfill result
         db_service.log_backfill(
@@ -111,6 +163,9 @@ async def backfill_symbol(
             True,
             None
         )
+        
+        # Update tracked_symbols to record that this timeframe was successfully backfilled
+        await update_symbol_timeframe(database_url, symbol, timeframe)
         
         logger.info(f"✓ Successfully backfilled {inserted} records for {symbol}")
         return inserted, 0
@@ -239,7 +294,8 @@ async def main():
             db_service,
             start_dt,
             end_dt,
-            args.timeframe
+            args.timeframe,
+            database_url
         )
         total_inserted += inserted
         total_failed += failed

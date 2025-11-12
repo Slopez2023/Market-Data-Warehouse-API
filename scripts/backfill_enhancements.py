@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """
-Backfill v2 - Comprehensive backfill for all available data
-Extends backfill.py to include:
-  - News & Sentiment
+Backfill Enhancements - Alternative data and market insights.
+Includes all data that complements standard OHLCV:
+  - News Articles & Sentiment Analysis
   - Options IV & Chain Data
-  - Earnings & Estimates
+  - Earnings Announcements & Estimates
   - Dividends & Stock Splits
-  - Adjusted OHLCV prices
-  - Volatility Regime classification
+  - Adjusted OHLCV prices (split/dividend adjusted)
+
+Prerequisite: Run backfill_ohlcv.py first for standard price/volume data.
 """
 
 import asyncio
@@ -349,7 +350,7 @@ async def backfill_adjusted_ohlcv(
 
 
 def _parse_args():
-    parser = argparse.ArgumentParser(description="Comprehensive backfill for all market data")
+    parser = argparse.ArgumentParser(description="Backfill alternative data and enhancements (news, dividends, splits, earnings, options, adjusted prices)")
     parser.add_argument(
         "--symbols",
         type=str,
@@ -375,9 +376,9 @@ def _parse_args():
         help="Timeframe: 5m, 15m, 30m, 1h, 4h, 1d (default), 1w"
     )
     parser.add_argument(
-        "--skip-ohlcv",
+        "--only-ohlcv",
         action="store_true",
-        help="Skip OHLCV backfill"
+        help="Only backfill OHLCV data (not recommended, use backfill_ohlcv.py instead)"
     )
     parser.add_argument(
         "--skip-news",
@@ -507,8 +508,8 @@ async def main():
         logger.info("-" * 80)
         
         try:
-            # OHLCV Data
-            if not args.skip_ohlcv:
+            # OHLCV Data (skip by default in V2, only if --only-ohlcv flag is used)
+            if args.only_ohlcv:
                 inserted, failed = await backfill_ohlcv(
                     symbol, polygon_client, validation_service, db_service,
                     start_dt, end_dt, args.timeframe

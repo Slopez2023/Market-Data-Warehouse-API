@@ -8,9 +8,19 @@ Usage:
 This will:
 1. Create the tracked_symbols table
 2. Insert default 60 symbols (20 stocks + 20 crypto + 20 ETFs)
-3. Skip any that already exist
+3. Configure all symbols with full timeframe support (5m, 15m, 30m, 1h, 4h, 1d, 1w)
+4. Skip any that already exist
 
 Execution time: ~3-5 seconds
+
+Timeframes pulled for each symbol:
+- 5m (5 minutes)
+- 15m (15 minutes)
+- 30m (30 minutes)
+- 1h (1 hour)
+- 4h (4 hours)
+- 1d (1 day)
+- 1w (1 week)
 """
 
 import asyncio
@@ -106,12 +116,12 @@ async def init_symbols():
         
         for symbol, asset_class in DEFAULT_SYMBOLS:
             try:
-                # Try to insert
+                # Try to insert with full timeframe support
                 result = await conn.execute(
                     """
-                    INSERT INTO tracked_symbols (symbol, asset_class, active)
-                    VALUES ($1, $2, TRUE)
-                    ON CONFLICT (symbol) DO NOTHING
+                    INSERT INTO tracked_symbols (symbol, asset_class, active, timeframes)
+                    VALUES ($1, $2, TRUE, ARRAY['5m', '15m', '30m', '1h', '4h', '1d', '1w'])
+                    ON CONFLICT (symbol) DO UPDATE SET timeframes = ARRAY['5m', '15m', '30m', '1h', '4h', '1d', '1w']
                     """,
                     symbol, asset_class
                 )

@@ -55,7 +55,7 @@ for timeframe in "${TIMEFRAMES[@]}"; do
     echo -e "${YELLOW}[${completed}/${total_iterations}] Backfilling all symbols with timeframe: ${GREEN}${timeframe}${NC}"
     echo "-----------------------------------------------------"
     
-    python scripts/backfill.py \
+    python scripts/backfill_ohlcv.py \
         --start "$START_DATE" \
         --end "$END_DATE" \
         --timeframe "$timeframe"
