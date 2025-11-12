@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
 Backfill Enhancements - Alternative data and market insights.
-Includes all data that complements standard OHLCV:
+Includes data that complements standard OHLCV:
   - News Articles & Sentiment Analysis
-  - Options IV & Chain Data
-  - Earnings Announcements & Estimates
-  - Dividends & Stock Splits
   - Adjusted OHLCV prices (split/dividend adjusted)
+
+NOTE: Dividends, Splits, Earnings, and Options require higher Polygon API tier.
+      This script runs on Starter plan ($29/mo) - only News and Adjusted OHLCV available.
 
 Prerequisite: Run backfill_ohlcv.py first for standard price/volume data.
 """
@@ -24,8 +24,6 @@ from src.services.validation_service import ValidationService
 from src.services.database_service import DatabaseService
 from src.services.news_service import NewsService
 from src.services.sentiment_service import SentimentService
-from src.services.options_iv_service import OptionsIVService
-from src.services.earnings_service import EarningsService
 from src.services.dividend_split_service import DividendSplitService
 from src.services.feature_service import FeatureService
 
@@ -139,9 +137,9 @@ async def backfill_news_sentiment(
                 text = f"{title} {description}".strip()
                 
                 if text:
-                    sentiment = sentiment_service.analyze_sentiment(text)
-                    article['sentiment_score'] = sentiment.get('score', 0)
-                    article['sentiment_label'] = sentiment.get('label', 'NEUTRAL')
+                    sentiment = sentiment_service.analyze_text(text)
+                    article['sentiment_score'] = sentiment.get('sentiment_score', 0)
+                    article['sentiment_label'] = sentiment.get('sentiment_label', 'NEUTRAL')
                     article['sentiment_confidence'] = sentiment.get('confidence', 0)
                 else:
                     article['sentiment_score'] = 0
@@ -166,148 +164,7 @@ async def backfill_news_sentiment(
         return 0, 1
 
 
-async def backfill_dividends(
-    symbol: str,
-    polygon_client: PolygonClient,
-    dividend_service: DividendSplitService,
-    start_date: datetime.date,
-    end_date: datetime.date
-) -> tuple[int, int]:
-    """
-    Backfill dividend records.
-    """
-    try:
-        logger.info(f"[{symbol}] Backfilling dividends: {start_date} to {end_date}")
-        
-        # Fetch dividends from Polygon
-        dividends = await polygon_client.fetch_dividends(
-            symbol,
-            start_date.strftime('%Y-%m-%d'),
-            end_date.strftime('%Y-%m-%d')
-        )
-        
-        if not dividends:
-            logger.info(f"[{symbol}] No dividends found")
-            return 0, 0
-        
-        logger.info(f"[{symbol}] Fetched {len(dividends)} dividend records")
-        
-        # Insert into database
-        inserted, failed = dividend_service.insert_dividends_batch(symbol, dividends)
-        logger.info(f"[{symbol}] ✓ Inserted {inserted} dividend records")
-        return inserted, failed
-    
-    except Exception as e:
-        logger.error(f"[{symbol}] ✗ Error backfilling dividends: {e}")
-        return 0, 1
 
-
-async def backfill_stock_splits(
-    symbol: str,
-    polygon_client: PolygonClient,
-    dividend_service: DividendSplitService,
-    start_date: datetime.date,
-    end_date: datetime.date
-) -> tuple[int, int]:
-    """
-    Backfill stock split records.
-    """
-    try:
-        logger.info(f"[{symbol}] Backfilling stock splits: {start_date} to {end_date}")
-        
-        # Fetch splits from Polygon
-        splits = await polygon_client.fetch_splits(
-            symbol,
-            start_date.strftime('%Y-%m-%d'),
-            end_date.strftime('%Y-%m-%d')
-        )
-        
-        if not splits:
-            logger.info(f"[{symbol}] No stock splits found")
-            return 0, 0
-        
-        logger.info(f"[{symbol}] Fetched {len(splits)} split records")
-        
-        # Insert into database
-        inserted, failed = dividend_service.insert_splits_batch(symbol, splits)
-        logger.info(f"[{symbol}] ✓ Inserted {inserted} stock split records")
-        return inserted, failed
-    
-    except Exception as e:
-        logger.error(f"[{symbol}] ✗ Error backfilling stock splits: {e}")
-        return 0, 1
-
-
-async def backfill_earnings(
-    symbol: str,
-    polygon_client: PolygonClient,
-    earnings_service: EarningsService,
-    start_date: datetime.date,
-    end_date: datetime.date
-) -> tuple[int, int]:
-    """
-    Backfill earnings announcements and historical data.
-    """
-    try:
-        logger.info(f"[{symbol}] Backfilling earnings: {start_date} to {end_date}")
-        
-        # Fetch earnings from Polygon
-        earnings = await polygon_client.fetch_earnings(
-            symbol,
-            start_date.strftime('%Y-%m-%d'),
-            end_date.strftime('%Y-%m-%d')
-        )
-        
-        if not earnings:
-            logger.info(f"[{symbol}] No earnings found")
-            return 0, 0
-        
-        logger.info(f"[{symbol}] Fetched {len(earnings)} earnings records")
-        
-        # Insert into database
-        inserted, updated = await earnings_service.insert_earnings_batch(earnings)
-        logger.info(f"[{symbol}] ✓ Inserted {inserted} earnings records (updated: {updated})")
-        return inserted, 0
-    
-    except Exception as e:
-        logger.error(f"[{symbol}] ✗ Error backfilling earnings: {e}")
-        return 0, 1
-
-
-async def backfill_options_iv(
-    symbol: str,
-    polygon_client: PolygonClient,
-    options_service: OptionsIVService,
-    end_date: datetime.date
-) -> tuple[int, int]:
-    """
-    Backfill options chain and IV data (current snapshot only, Polygon doesn't provide historical options chains).
-    """
-    try:
-        logger.info(f"[{symbol}] Fetching options IV snapshot: {end_date}")
-        
-        # Fetch options chain from Polygon
-        options_data = await polygon_client.fetch_options_chain(symbol, end_date)
-        
-        if not options_data:
-            logger.info(f"[{symbol}] No options data found")
-            return 0, 0
-        
-        logger.info(f"[{symbol}] Fetched options chain snapshot")
-        
-        # Insert into database
-        inserted = options_service.insert_options_iv_batch(
-            symbol,
-            options_data.get('options', []),
-            options_data.get('current_price'),
-            end_date
-        )
-        logger.info(f"[{symbol}] ✓ Inserted {inserted} options IV records")
-        return inserted, 0
-    
-    except Exception as e:
-        logger.error(f"[{symbol}] ✗ Error backfilling options IV: {e}")
-        return 0, 1
 
 
 async def backfill_adjusted_ohlcv(
@@ -350,7 +207,7 @@ async def backfill_adjusted_ohlcv(
 
 
 def _parse_args():
-    parser = argparse.ArgumentParser(description="Backfill alternative data and enhancements (news, dividends, splits, earnings, options, adjusted prices)")
+    parser = argparse.ArgumentParser(description="Backfill alternative data (Starter plan: News + Adjusted OHLCV only)")
     parser.add_argument(
         "--symbols",
         type=str,
@@ -383,27 +240,7 @@ def _parse_args():
     parser.add_argument(
         "--skip-news",
         action="store_true",
-        help="Skip news/sentiment backfill"
-    )
-    parser.add_argument(
-        "--skip-dividends",
-        action="store_true",
-        help="Skip dividend backfill"
-    )
-    parser.add_argument(
-        "--skip-splits",
-        action="store_true",
-        help="Skip stock split backfill"
-    )
-    parser.add_argument(
-        "--skip-earnings",
-        action="store_true",
-        help="Skip earnings backfill"
-    )
-    parser.add_argument(
-        "--skip-options",
-        action="store_true",
-        help="Skip options IV backfill"
+        help="Skip news/sentiment backfill (default: enabled)"
     )
     parser.add_argument(
         "--skip-adjusted",
@@ -476,11 +313,9 @@ async def main():
     polygon_client = PolygonClient(polygon_api_key)
     validation_service = ValidationService()
     db_service = DatabaseService(database_url)
-    news_service = NewsService(database_url)
+    news_service = NewsService(db_service)
     sentiment_service = SentimentService()
-    options_service = OptionsIVService(database_url)
-    earnings_service = EarningsService(database_url)
-    dividend_service = DividendSplitService(database_url)
+    dividend_service = DividendSplitService(db_service)
     feature_service = FeatureService(database_url)
     
     logger.info("=" * 80)
@@ -495,10 +330,6 @@ async def main():
     stats = {
         'ohlcv': {'inserted': 0, 'failed': 0},
         'news': {'inserted': 0, 'failed': 0},
-        'dividends': {'inserted': 0, 'failed': 0},
-        'splits': {'inserted': 0, 'failed': 0},
-        'earnings': {'inserted': 0, 'failed': 0},
-        'options': {'inserted': 0, 'failed': 0},
         'adjusted': {'inserted': 0, 'failed': 0},
     }
     
@@ -526,42 +357,6 @@ async def main():
                 stats['news']['inserted'] += inserted
                 stats['news']['failed'] += failed
             
-            # Dividends
-            if not args.skip_dividends:
-                inserted, failed = await backfill_dividends(
-                    symbol, polygon_client, dividend_service,
-                    start_dt, end_dt
-                )
-                stats['dividends']['inserted'] += inserted
-                stats['dividends']['failed'] += failed
-            
-            # Stock Splits
-            if not args.skip_splits:
-                inserted, failed = await backfill_stock_splits(
-                    symbol, polygon_client, dividend_service,
-                    start_dt, end_dt
-                )
-                stats['splits']['inserted'] += inserted
-                stats['splits']['failed'] += failed
-            
-            # Earnings
-            if not args.skip_earnings:
-                inserted, failed = await backfill_earnings(
-                    symbol, polygon_client, earnings_service,
-                    start_dt, end_dt
-                )
-                stats['earnings']['inserted'] += inserted
-                stats['earnings']['failed'] += failed
-            
-            # Options IV
-            if not args.skip_options:
-                inserted, failed = await backfill_options_iv(
-                    symbol, polygon_client, options_service,
-                    end_dt
-                )
-                stats['options']['inserted'] += inserted
-                stats['options']['failed'] += failed
-            
             # Adjusted OHLCV
             if not args.skip_adjusted:
                 inserted, failed = await backfill_adjusted_ohlcv(
@@ -577,25 +372,18 @@ async def main():
     
     # Print summary
     logger.info("\n" + "=" * 80)
-    logger.info("BACKFILL V2 COMPLETE")
+    logger.info("BACKFILL COMPLETE (Starter Plan - News + Adjusted OHLCV)")
     logger.info("=" * 80)
     logger.info(f"Total symbols processed: {len(requested_symbols)}")
     logger.info("\nData inserted:")
     logger.info(f"  OHLCV: {stats['ohlcv']['inserted']:,} records")
     logger.info(f"  News/Sentiment: {stats['news']['inserted']:,} articles")
-    logger.info(f"  Dividends: {stats['dividends']['inserted']:,} records")
-    logger.info(f"  Stock Splits: {stats['splits']['inserted']:,} records")
-    logger.info(f"  Earnings: {stats['earnings']['inserted']:,} records")
-    logger.info(f"  Options IV: {stats['options']['inserted']:,} records")
     logger.info(f"  Adjusted OHLCV: {stats['adjusted']['inserted']:,} records")
     logger.info("\nData failed:")
     logger.info(f"  OHLCV: {stats['ohlcv']['failed']} symbols")
     logger.info(f"  News/Sentiment: {stats['news']['failed']} symbols")
-    logger.info(f"  Dividends: {stats['dividends']['failed']} symbols")
-    logger.info(f"  Stock Splits: {stats['splits']['failed']} symbols")
-    logger.info(f"  Earnings: {stats['earnings']['failed']} symbols")
-    logger.info(f"  Options IV: {stats['options']['failed']} symbols")
     logger.info(f"  Adjusted OHLCV: {stats['adjusted']['failed']} symbols")
+    logger.info("\nNote: Dividends, Splits, Earnings, Options require higher Polygon API tier")
     logger.info("=" * 80)
 
 

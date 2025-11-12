@@ -100,7 +100,8 @@ class PolygonClient:
         timeframe: str,
         start: str,
         end: str,
-        is_crypto: bool = False
+        is_crypto: bool = False,
+        adjusted: bool = False
     ) -> List[Dict]:
         """
         Fetch OHLCV data for a symbol and timeframe from Polygon.
@@ -141,7 +142,8 @@ class PolygonClient:
         params = {
             "apiKey": self.api_key,
             "sort": "asc",
-            "limit": 50000
+            "limit": 50000,
+            "adjusted": str(adjusted).lower()
         }
         
         try:
@@ -383,6 +385,11 @@ class PolygonClient:
             logger.error(f"Unexpected error fetching splits for {symbol}: {e}")
             raise
     
+    # Alias for backward compatibility
+    async def fetch_splits(self, symbol: str, start: str, end: str) -> List[Dict]:
+        """Alias for fetch_stock_splits for backward compatibility."""
+        return await self.fetch_stock_splits(symbol, start, end)
+    
     async def fetch_news(self, symbol: str, start: str, end: str) -> List[Dict]:
         """
         Fetch news articles for a symbol.
@@ -449,12 +456,10 @@ class PolygonClient:
         Returns:
             List of earnings records from Polygon API
         """
-        url = "https://api.polygon.io/v2/reference/dividends"
+        url = "https://api.polygon.io/v1/reference/financials"
         
         params = {
             "ticker": symbol,
-            "ex_dividend_date.gte": start,
-            "ex_dividend_date.lte": end,
             "apiKey": self.api_key,
             "limit": 1000
         }

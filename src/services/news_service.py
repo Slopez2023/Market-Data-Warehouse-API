@@ -57,7 +57,7 @@ class NewsService:
                          sentiment_score, sentiment_label, sentiment_confidence, keywords)
                         VALUES (:symbol, :title, :description, :url, :image_url, :author, :source, 
                                 :published_at, :sentiment_score, :sentiment_label, :sentiment_confidence, 
-                                :keywords::text[])
+                                :keywords)
                         ON CONFLICT (symbol, url) DO NOTHING
                     """)
                     

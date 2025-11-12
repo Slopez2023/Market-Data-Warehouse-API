@@ -135,6 +135,11 @@ echo ""
 # Check 6: Python imports
 echo "6. Testing critical imports..."
 python << 'EOF'
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
 try:
     import fastapi
     import sqlalchemy
