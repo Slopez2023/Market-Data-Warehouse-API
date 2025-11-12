@@ -28,17 +28,17 @@ async def test_load_symbols_returns_tuples_with_asset_class():
         mock_connect.return_value = mock_conn
         
         mock_conn.fetch.return_value = [
-            {'symbol': 'AAPL', 'asset_class': 'stock'},
-            {'symbol': 'MSFT', 'asset_class': 'stock'},
-            {'symbol': 'BTC', 'asset_class': 'crypto'},
+            {'symbol': 'AAPL', 'asset_class': 'stock', 'timeframes': ['1h', '1d']},
+            {'symbol': 'MSFT', 'asset_class': 'stock', 'timeframes': ['1h', '1d']},
+            {'symbol': 'BTC', 'asset_class': 'crypto', 'timeframes': ['1h', '1d']},
         ]
         
         symbols = await scheduler._load_symbols_from_db()
         
         assert len(symbols) == 3
-        assert symbols[0] == ('AAPL', 'stock')
-        assert symbols[1] == ('MSFT', 'stock')
-        assert symbols[2] == ('BTC', 'crypto')
+        assert symbols[0] == ('AAPL', 'stock', ['1h', '1d'])
+        assert symbols[1] == ('MSFT', 'stock', ['1h', '1d'])
+        assert symbols[2] == ('BTC', 'crypto', ['1h', '1d'])
         
         mock_conn.close.assert_called_once()
 
@@ -305,17 +305,20 @@ async def test_backfill_handles_stock_asset_class():
         database_url="postgresql://test"
     )
     
-    with patch.object(scheduler.polygon_client, 'fetch_daily_range', new_callable=AsyncMock) as mock_fetch:
+    with patch.object(scheduler.polygon_client, 'fetch_range', new_callable=AsyncMock) as mock_fetch:
         mock_fetch.return_value = [
             {'t': 1609459200000, 'o': 130.0, 'h': 131.0, 'l': 129.0, 'c': 130.5, 'v': 1000000}
         ]
         
         with patch.object(scheduler, 'db_service'):
-            with patch.object(scheduler, '_update_symbol_backfill_status', new_callable=AsyncMock):
-                records = await scheduler._backfill_symbol("AAPL", "stock")
-                
-                # Should call fetch_daily_range for stocks
-                mock_fetch.assert_called_once()
+            with patch.object(scheduler.validation_service, 'validate_candle') as mock_validate:
+                mock_validate.return_value = (True, {'validated': True})
+                with patch.object(scheduler.db_service, 'insert_ohlcv_batch', return_value=1):
+                    with patch.object(scheduler.db_service, 'log_backfill'):
+                        records = await scheduler._backfill_symbol("AAPL", "stock", "1d")
+                        
+                        # Should call fetch_range for stocks
+                        mock_fetch.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -326,17 +329,20 @@ async def test_backfill_handles_crypto_asset_class():
         database_url="postgresql://test"
     )
     
-    with patch.object(scheduler.polygon_client, 'fetch_crypto_daily_range', new_callable=AsyncMock) as mock_fetch:
+    with patch.object(scheduler.polygon_client, 'fetch_range', new_callable=AsyncMock) as mock_fetch:
         mock_fetch.return_value = [
             {'t': 1609459200000, 'o': 29000.0, 'h': 30000.0, 'l': 28000.0, 'c': 29500.0, 'v': 100}
         ]
         
         with patch.object(scheduler, 'db_service'):
-            with patch.object(scheduler, '_update_symbol_backfill_status', new_callable=AsyncMock):
-                records = await scheduler._backfill_symbol("BTCUSD", "crypto")
-                
-                # Should call fetch_crypto_daily_range for crypto
-                mock_fetch.assert_called_once()
+            with patch.object(scheduler.validation_service, 'validate_candle') as mock_validate:
+                mock_validate.return_value = (True, {'validated': True})
+                with patch.object(scheduler.db_service, 'insert_ohlcv_batch', return_value=1):
+                    with patch.object(scheduler.db_service, 'log_backfill'):
+                        records = await scheduler._backfill_symbol("BTCUSD", "crypto", "1d")
+                        
+                        # Should call fetch_range for crypto
+                        mock_fetch.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -347,12 +353,12 @@ async def test_backfill_job_processes_mixed_assets():
         database_url="postgresql://test"
     )
     
-    # Set up mixed symbols
+    # Set up mixed symbols with timeframes
     scheduler.symbols = [
-        ("AAPL", "stock"),
-        ("MSFT", "stock"),
-        ("BTCUSD", "crypto"),
-        ("SPY", "etf")
+        ("AAPL", "stock", ["1d"]),
+        ("MSFT", "stock", ["1d"]),
+        ("BTCUSD", "crypto", ["1d"]),
+        ("SPY", "etf", ["1d"])
     ]
     
     with patch.object(scheduler, '_load_symbols_from_db', new_callable=AsyncMock) as mock_load:
@@ -364,15 +370,15 @@ async def test_backfill_job_processes_mixed_assets():
             with patch.object(scheduler, '_update_symbol_backfill_status', new_callable=AsyncMock):
                 await scheduler._backfill_job()
                 
-                # Should process all symbols
+                # Should process all symbols (4 symbols x 1 timeframe each)
                 assert mock_backfill.call_count == 4
                 
-                # Check calls include asset class
+                # Check calls include asset class and timeframe
                 calls = mock_backfill.call_args_list
-                assert calls[0][0] == ("AAPL", "stock")
-                assert calls[1][0] == ("MSFT", "stock")
-                assert calls[2][0] == ("BTCUSD", "crypto")
-                assert calls[3][0] == ("SPY", "etf")
+                assert calls[0][0] == ("AAPL", "stock", "1d")
+                assert calls[1][0] == ("MSFT", "stock", "1d")
+                assert calls[2][0] == ("BTCUSD", "crypto", "1d")
+                assert calls[3][0] == ("SPY", "etf", "1d")
 
 
 # ==============================================================================
@@ -385,11 +391,11 @@ async def test_backfill_job_updates_status_progression():
     scheduler = AutoBackfillScheduler(
         polygon_api_key="test_key",
         database_url="postgresql://test",
-        symbols=[("AAPL", "stock")]  # Provide symbols in constructor
+        symbols=[("AAPL", "stock", ["1d"])]  # Provide symbols in constructor with timeframes
     )
     
     with patch.object(scheduler, '_load_symbols_from_db', new_callable=AsyncMock) as mock_load:
-        mock_load.return_value = [("AAPL", "stock")]
+        mock_load.return_value = [("AAPL", "stock", ["1d"])]
         
         with patch.object(scheduler, '_backfill_symbol', new_callable=AsyncMock) as mock_backfill:
             mock_backfill.return_value = 10
@@ -415,11 +421,11 @@ async def test_backfill_job_error_updates_failed_status():
     scheduler = AutoBackfillScheduler(
         polygon_api_key="test_key",
         database_url="postgresql://test",
-        symbols=[("BADTICKER", "stock")]
+        symbols=[("BADTICKER", "stock", ["1d"])]
     )
     
     with patch.object(scheduler, '_load_symbols_from_db', new_callable=AsyncMock) as mock_load:
-        mock_load.return_value = [("BADTICKER", "stock")]
+        mock_load.return_value = [("BADTICKER", "stock", ["1d"])]
         
         with patch.object(scheduler, '_backfill_symbol', side_effect=Exception("API error")):
             with patch.object(scheduler, '_update_symbol_backfill_status', new_callable=AsyncMock) as mock_status:
@@ -450,7 +456,7 @@ async def test_symbol_manager_get_all_symbols_with_asset_class():
                 'active': True,
                 'date_added': datetime(2023, 1, 1),
                 'last_backfill': datetime(2023, 12, 31),
-                'backfill_status': 'completed'
+                'backfill_status': 'completed', 'timeframes': ['1h', '1d']
             }
         ]
         

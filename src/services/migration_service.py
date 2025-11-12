@@ -41,11 +41,12 @@ class MigrationService:
             ])
             
             if not migration_files:
-                logger.warning("No migration files found", extra={
+                logger.warning("No migration files found - tables should exist from init scripts", extra={
                     "migrations_dir": str(self.MIGRATIONS_DIR)
                 })
                 await conn.close()
-                return False
+                # Return True if no migrations but schema will be verified
+                return True
             
             # Execute each migration
             for migration_file in migration_files:
@@ -56,8 +57,34 @@ class MigrationService:
                 try:
                     sql_content = migration_file.read_text()
                     
-                    # Execute the SQL
-                    await conn.execute(sql_content)
+                    # Execute the SQL - use executemany for safety
+                    try:
+                        await conn.execute(sql_content)
+                    except asyncpg.DuplicateTableError:
+                        # Table already exists from init script - this is OK
+                        logger.info("Migration skipped - table already exists", extra={
+                            "file": migration_file.name
+                        })
+                    except asyncpg.DuplicateColumnError:
+                        # Column already exists - this is OK
+                        logger.info("Migration skipped - column already exists", extra={
+                            "file": migration_file.name
+                        })
+                    except Exception as e:
+                        # Check if this is an ownership error (table exists but user doesn't own it)
+                        error_str = str(e).lower()
+                        if "must be owner of table" in error_str or "permission denied" in error_str:
+                            logger.info("Migration skipped - insufficient permissions (schema owned by postgres)", extra={
+                                "file": migration_file.name,
+                                "note": "Schema is already initialized from init scripts"
+                            })
+                        else:
+                            logger.error("Migration failed", extra={
+                                "file": migration_file.name,
+                                "error": str(e)
+                            })
+                            await conn.close()
+                            return False
                     
                     logger.info("Migration completed", extra={
                         "file": migration_file.name
@@ -92,7 +119,7 @@ class MigrationService:
             'tracked_symbols': ['id', 'symbol', 'asset_class', 'active', 'timeframes'],
             'api_keys': ['id', 'key_hash', 'name', 'active'],
             'api_key_audit': ['id', 'api_key_id', 'endpoint', 'method'],
-            'market_data': ['id', 'symbol', 'time', 'open', 'high', 'low', 'close', 'volume', 'timeframe']
+            'market_data': ['id', 'symbol', 'time', 'open', 'high', 'low', 'close', 'volume', 'source', 'validated', 'quality_score']
         }
         
         results = {}

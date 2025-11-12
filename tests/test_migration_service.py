@@ -62,6 +62,7 @@ async def test_verify_schema_all_tables_exist(migration_service):
     assert 'tracked_symbols' in schema_status
     assert 'api_keys' in schema_status
     assert 'api_key_audit' in schema_status
+    assert 'market_data' in schema_status
     
     # Check all tables are valid
     assert all(schema_status.values())
@@ -99,8 +100,8 @@ async def test_get_migration_status(migration_service):
     
     # Check values
     assert len(status['migration_files']) > 0
-    assert status['tables_checked'] == 3  # tracked_symbols, api_keys, api_key_audit
-    assert status['tables_valid'] == 3
+    assert status['tables_checked'] == 4  # tracked_symbols, api_keys, api_key_audit, market_data
+    assert status['tables_valid'] == 4
     assert status['all_tables_valid'] is True
 
 
@@ -244,3 +245,4 @@ async def test_schema_verification_handles_missing_tables(migration_service):
     assert 'tracked_symbols' in schema_status
     assert 'api_keys' in schema_status
     assert 'api_key_audit' in schema_status
+    assert 'market_data' in schema_status

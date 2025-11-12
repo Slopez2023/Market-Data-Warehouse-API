@@ -175,24 +175,25 @@ fetch('http://localhost:8000/api/v1/status')
 
 ## Endpoint: GET /api/v1/historical/{symbol}
 
-Fetch historical OHLCV data for a symbol.
+Fetch historical OHLCV data for a symbol with configurable timeframe.
 
 ### Purpose
-Query validated historical candlestick data. Apply date range, quality filters, and validation status filters.
+Query validated historical candlestick data with selectable timeframes. Apply date range, quality filters, and validation status filters. Supports 7 timeframes: 5m, 15m, 30m, 1h, 4h, 1d, 1w.
 
 ### Request
 ```bash
-curl "http://localhost:8000/api/v1/historical/AAPL?start=2023-01-01&end=2023-12-31"
+curl "http://localhost:8000/api/v1/historical/AAPL?start=2023-01-01&end=2023-12-31&timeframe=1d"
 ```
 
 ### Request Parameters
 
 **Path Parameter:**
-- `symbol` (required) — Stock ticker (AAPL, MSFT, GOOGL, AMZN, etc.)
+- `symbol` (required) — Stock ticker (AAPL, MSFT, GOOGL, AMZN, etc.) or crypto (BTCUSD, ETHUSD, etc.)
 
 **Query Parameters:**
 - `start` (required) — Start date in format YYYY-MM-DD
 - `end` (required) — End date in format YYYY-MM-DD
+- `timeframe` (required) — Candle timeframe: `5m`, `15m`, `30m`, `1h`, `4h`, `1d`, or `1w`
 - `validated_only` (optional, default: true) — Filter to quality_score ≥ min_quality
 - `min_quality` (optional, default: 0.85) — Minimum quality score (0.0-1.0)
 
@@ -200,6 +201,7 @@ curl "http://localhost:8000/api/v1/historical/AAPL?start=2023-01-01&end=2023-12-
 ```json
 {
   "symbol": "AAPL",
+  "timeframe": "1d",
   "start_date": "2023-01-01",
   "end_date": "2023-12-31",
   "count": 252,
@@ -207,6 +209,7 @@ curl "http://localhost:8000/api/v1/historical/AAPL?start=2023-01-01&end=2023-12-
     {
       "time": "2023-01-03T00:00:00Z",
       "symbol": "AAPL",
+      "timeframe": "1d",
       "open": 150.25,
       "high": 152.50,
       "low": 149.50,
@@ -220,6 +223,7 @@ curl "http://localhost:8000/api/v1/historical/AAPL?start=2023-01-01&end=2023-12-
     {
       "time": "2023-01-04T00:00:00Z",
       "symbol": "AAPL",
+      "timeframe": "1d",
       "open": 151.10,
       "high": 153.20,
       "low": 150.80,
@@ -673,6 +677,91 @@ curl "http://localhost:8000/api/v1/historical/AAPL?start=2023-01-01&end=2023-12-
 ---
 
 ## Version Info
+
+---
+
+## Endpoint: PUT /api/v1/admin/symbols/{symbol}/timeframes
+
+Update per-symbol timeframe configuration.
+
+### Purpose
+Configure which timeframes should be backfilled for a symbol. Allows selective collection of intraday data without full system overhaul.
+
+### Request
+```bash
+curl -X PUT http://localhost:8000/api/v1/admin/symbols/AAPL/timeframes \
+  -H "X-API-Key: your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "timeframes": ["5m", "1h", "1d"]
+  }'
+```
+
+### Request Parameters
+
+**Path Parameter:**
+- `symbol` (required) — Stock ticker or crypto symbol
+
+**Request Body:**
+```json
+{
+  "timeframes": ["5m", "15m", "30m", "1h", "4h", "1d", "1w"]
+}
+```
+
+**Available Timeframes:**
+- `5m` — 5-minute candles (intraday)
+- `15m` — 15-minute candles (intraday)
+- `30m` — 30-minute candles (intraday)
+- `1h` — Hourly candles (intraday)
+- `4h` — 4-hour candles (intraday)
+- `1d` — Daily candles (default, recommended)
+- `1w` — Weekly candles (aggregated)
+
+### Response (200 OK)
+```json
+{
+  "symbol": "AAPL",
+  "asset_class": "stock",
+  "active": true,
+  "timeframes": ["5m", "1h", "1d"],
+  "first_trade_date": "2023-01-01",
+  "created_at": "2025-11-11T10:00:00Z",
+  "updated_at": "2025-11-11T14:30:00Z"
+}
+```
+
+### Status Codes
+- **200 OK** — Timeframes updated successfully
+- **400 Bad Request** — Invalid timeframe values or empty list
+- **401 Unauthorized** — Missing or invalid API key
+- **404 Not Found** — Symbol not found
+- **422 Unprocessable Entity** — Invalid request format
+- **500 Internal Server Error** — Database error
+
+### Notes
+- Timeframes are automatically deduplicated and sorted
+- Scheduler will backfill all configured timeframes daily
+- Existing data for timeframes is preserved
+- Default timeframes for new symbols: `['1h', '1d']`
+
+### Example (Python)
+```python
+import requests
+
+api_key = "your-api-key"
+headers = {"X-API-Key": api_key, "Content-Type": "application/json"}
+body = {"timeframes": ["5m", "1h", "4h", "1d"]}
+
+response = requests.put(
+    "http://localhost:8000/api/v1/admin/symbols/AAPL/timeframes",
+    headers=headers,
+    json=body
+)
+print(response.json())
+```
+
+---
 
 **API Version:** 1.0.0  
 **Python:** 3.11+  

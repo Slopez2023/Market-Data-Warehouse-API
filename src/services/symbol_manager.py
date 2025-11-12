@@ -5,6 +5,7 @@ import asyncpg
 from datetime import datetime
 
 from src.services.structured_logging import StructuredLogger
+from src.config import ALLOWED_TIMEFRAMES, DEFAULT_TIMEFRAMES
 
 logger = StructuredLogger(__name__)
 
@@ -55,7 +56,7 @@ class SymbolManager:
                 """
                 INSERT INTO tracked_symbols (symbol, asset_class, active)
                 VALUES ($1, $2, TRUE)
-                RETURNING id, symbol, asset_class, active, date_added, backfill_status
+                RETURNING id, symbol, asset_class, active, date_added, backfill_status, timeframes
                 """,
                 symbol, asset_class
             )
@@ -68,7 +69,8 @@ class SymbolManager:
                 'asset_class': row['asset_class'],
                 'active': row['active'],
                 'date_added': row['date_added'].isoformat() if row['date_added'] else None,
-                'backfill_status': row['backfill_status']
+                'backfill_status': row['backfill_status'],
+                'timeframes': list(row['timeframes']) if row['timeframes'] else DEFAULT_TIMEFRAMES
             }
             
             logger.info(f"Symbol added: {symbol}", extra=result)
@@ -82,7 +84,7 @@ class SymbolManager:
     
     async def get_all_symbols(self, active_only: bool = True) -> List[dict]:
         """
-        Get all tracked symbols.
+        Get all tracked symbols with timeframes.
         
         Args:
             active_only: If True, only return active symbols
@@ -93,7 +95,7 @@ class SymbolManager:
         try:
             conn = await asyncpg.connect(self.database_url)
             
-            query = "SELECT id, symbol, asset_class, active, date_added, last_backfill, backfill_status FROM tracked_symbols"
+            query = "SELECT id, symbol, asset_class, active, date_added, last_backfill, backfill_status, timeframes FROM tracked_symbols"
             
             if active_only:
                 query += " WHERE active = TRUE"
@@ -111,7 +113,8 @@ class SymbolManager:
                     'active': row['active'],
                     'date_added': row['date_added'].isoformat() if row['date_added'] else None,
                     'last_backfill': row['last_backfill'].isoformat() if row['last_backfill'] else None,
-                    'backfill_status': row['backfill_status']
+                    'backfill_status': row['backfill_status'],
+                    'timeframes': list(row['timeframes']) if row['timeframes'] else DEFAULT_TIMEFRAMES
                 }
                 for row in rows
             ]
@@ -122,7 +125,7 @@ class SymbolManager:
     
     async def get_symbol(self, symbol: str) -> Optional[dict]:
         """
-        Get a specific symbol.
+        Get a specific symbol with timeframes.
         
         Args:
             symbol: Symbol to fetch
@@ -136,7 +139,7 @@ class SymbolManager:
             conn = await asyncpg.connect(self.database_url)
             
             row = await conn.fetchrow(
-                "SELECT id, symbol, asset_class, active, date_added, last_backfill, backfill_status FROM tracked_symbols WHERE symbol = $1",
+                "SELECT id, symbol, asset_class, active, date_added, last_backfill, backfill_status, timeframes FROM tracked_symbols WHERE symbol = $1",
                 symbol
             )
             
@@ -145,6 +148,9 @@ class SymbolManager:
             if not row:
                 return None
             
+            # PostgreSQL array comes back as list, use default if None
+            timeframes = list(row['timeframes']) if row['timeframes'] else DEFAULT_TIMEFRAMES
+            
             return {
                 'id': row['id'],
                 'symbol': row['symbol'],
@@ -152,7 +158,8 @@ class SymbolManager:
                 'active': row['active'],
                 'date_added': row['date_added'].isoformat() if row['date_added'] else None,
                 'last_backfill': row['last_backfill'].isoformat() if row['last_backfill'] else None,
-                'backfill_status': row['backfill_status']
+                'backfill_status': row['backfill_status'],
+                'timeframes': timeframes
             }
         
         except Exception as e:
@@ -224,6 +231,78 @@ class SymbolManager:
         
         except Exception as e:
             logger.error(f"Error updating symbol {symbol}", extra={"error": str(e)})
+            raise
+    
+    async def update_symbol_timeframes(
+        self,
+        symbol: str,
+        timeframes: List[str]
+    ) -> Optional[dict]:
+        """
+        Update a symbol's configured timeframes.
+        
+        Args:
+            symbol: Symbol to update
+            timeframes: List of timeframes (e.g., ['1h', '1d', '4h'])
+        
+        Returns:
+            Updated symbol dict or None if not found
+            
+        Raises:
+            ValueError: If invalid timeframes provided
+        """
+        symbol = symbol.upper()
+        
+        # Validate timeframes
+        invalid = [tf for tf in timeframes if tf not in ALLOWED_TIMEFRAMES]
+        if invalid:
+            raise ValueError(
+                f"Invalid timeframes: {invalid}. "
+                f"Allowed: {', '.join(ALLOWED_TIMEFRAMES)}"
+            )
+        
+        # Remove duplicates and sort
+        timeframes = sorted(list(set(timeframes)))
+        
+        try:
+            conn = await asyncpg.connect(self.database_url)
+            
+            row = await conn.fetchrow(
+                """
+                UPDATE tracked_symbols 
+                SET timeframes = $2
+                WHERE symbol = $1
+                RETURNING id, symbol, asset_class, active, date_added, last_backfill, backfill_status, timeframes
+                """,
+                symbol, timeframes
+            )
+            
+            await conn.close()
+            
+            if not row:
+                logger.warning(f"Symbol not found: {symbol}")
+                return None
+            
+            result = {
+                'id': row['id'],
+                'symbol': row['symbol'],
+                'asset_class': row['asset_class'],
+                'active': row['active'],
+                'date_added': row['date_added'].isoformat() if row['date_added'] else None,
+                'last_backfill': row['last_backfill'].isoformat() if row['last_backfill'] else None,
+                'backfill_status': row['backfill_status'],
+                'timeframes': list(row['timeframes']) if row['timeframes'] else DEFAULT_TIMEFRAMES
+            }
+            
+            logger.info(f"Symbol timeframes updated: {symbol}", extra={
+                "timeframes": result['timeframes']
+            })
+            return result
+        
+        except ValueError:
+            raise
+        except Exception as e:
+            logger.error(f"Error updating symbol timeframes {symbol}", extra={"error": str(e)})
             raise
     
     async def remove_symbol(self, symbol: str) -> bool:

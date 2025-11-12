@@ -27,6 +27,7 @@ Each symbol has:
   "symbol": "AAPL",
   "asset_class": "stock",
   "active": true,
+  "timeframes": ["1h", "1d"],
   "backfill_status": "completed",
   "data_points": 2000,
   "date_range": {
@@ -35,6 +36,64 @@ Each symbol has:
   },
   "last_updated": "2025-11-10T14:00:00Z"
 }
+```
+
+---
+
+## Timeframe Configuration
+
+Each symbol can have multiple timeframes configured for data collection:
+
+### Supported Timeframes
+- `5m` — 5-minute candles (intraday)
+- `15m` — 15-minute candles (intraday)
+- `30m` — 30-minute candles (intraday)
+- `1h` — Hourly candles (intraday)
+- `4h` — 4-hour candles (intraday)
+- `1d` — Daily candles (default)
+- `1w` — Weekly candles
+
+### Default Configuration
+New symbols are created with `['1h', '1d']` timeframes by default.
+
+### Update Timeframes
+
+```bash
+curl -X PUT http://localhost:8000/api/v1/admin/symbols/AAPL/timeframes \
+  -H "X-API-Key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "timeframes": ["5m", "1h", "4h", "1d"]
+  }'
+```
+
+Response:
+```json
+{
+  "symbol": "AAPL",
+  "asset_class": "stock",
+  "active": true,
+  "timeframes": ["5m", "1h", "4h", "1d"],
+  "created_at": "2025-11-11T10:00:00Z",
+  "updated_at": "2025-11-11T14:30:00Z"
+}
+```
+
+### Python Example
+```python
+import requests
+
+api_key = "your-api-key"
+headers = {"X-API-Key": api_key, "Content-Type": "application/json"}
+body = {"timeframes": ["5m", "1h", "1d"]}
+
+response = requests.put(
+    "http://localhost:8000/api/v1/admin/symbols/AAPL/timeframes",
+    headers=headers,
+    json=body
+)
+symbol = response.json()
+print(f"Updated {symbol['symbol']} with timeframes: {symbol['timeframes']}")
 ```
 
 ---
@@ -187,9 +246,22 @@ Response:
 # Public endpoint
 curl http://localhost:8000/api/v1/symbols/AAPL
 
-# Admin endpoint with details
+# Admin endpoint with details (includes timeframes)
 curl -H "X-API-Key: $API_KEY" \
   http://localhost:8000/api/v1/admin/symbols/AAPL
+```
+
+Response:
+```json
+{
+  "symbol": "AAPL",
+  "asset_class": "stock",
+  "active": true,
+  "timeframes": ["1h", "1d"],
+  "first_trade_date": "2023-01-01",
+  "created_at": "2025-11-11T10:00:00Z",
+  "updated_at": "2025-11-11T14:30:00Z"
+}
 ```
 
 ### Filter by Asset Class
@@ -214,6 +286,17 @@ curl -X PUT http://localhost:8000/api/v1/admin/symbols/{symbol_id} \
   -H "Content-Type: application/json" \
   -d '{"active": false}'
 ```
+
+### Update Timeframes
+
+```bash
+curl -X PUT http://localhost:8000/api/v1/admin/symbols/{symbol}/timeframes \
+  -H "X-API-Key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"timeframes": ["5m", "1h", "1d", "1w"]}'
+```
+
+**Note:** Timeframes are automatically deduplicated and sorted. Scheduler will backfill all configured timeframes daily.
 
 ### Update Backfill Status
 
@@ -452,6 +535,23 @@ Content-Type: application/json
   "active": true|false
 }
 ```
+
+### Update Symbol Timeframes
+```
+PUT /api/v1/admin/symbols/{symbol}/timeframes
+X-API-Key: <admin_key>
+Content-Type: application/json
+
+{
+  "timeframes": ["5m", "15m", "30m", "1h", "4h", "1d", "1w"]
+}
+```
+
+**Available timeframes:**
+- `5m`, `15m`, `30m` — Intraday
+- `1h`, `4h` — Intraday multi-hour
+- `1d` — Daily (default)
+- `1w` — Weekly
 
 ### Delete Symbol
 ```

@@ -15,6 +15,9 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./database/sql/init-user.sql:/docker-entrypoint-initdb.d/00-init-user.sql:ro
       - ./database/sql/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./database/sql/02-tracked-symbols.sql:/docker-entrypoint-initdb.d/02-tracked-symbols.sql:ro
+      - ./database/sql/03-api-keys.sql:/docker-entrypoint-initdb.d/03-api-keys.sql:ro
+      - ./database/sql/04-ownership-transfer.sql:/docker-entrypoint-initdb.d/04-ownership-transfer.sql:ro
       - ./database/migrations:/docker-entrypoint-initdb.d/migrations:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U market_user"]

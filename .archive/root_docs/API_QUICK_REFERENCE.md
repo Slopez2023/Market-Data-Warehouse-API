@@ -34,7 +34,10 @@ GET  /api/v1/metrics            → Scheduler & backfill metrics
 ### Data Retrieval (No Auth Required)
 ```
 GET  /api/v1/symbols                                          → List available symbols
-GET  /api/v1/historical/{symbol}?start=YYYY-MM-DD&end=YYYY-MM-DD  → Historical OHLCV data
+GET  /api/v1/historical/{symbol}?start=YYYY-MM-DD&end=YYYY-MM-DD&timeframe=1d  → Historical OHLCV data
+
+Required Parameters:
+  - timeframe                    → Candle timeframe (5m, 15m, 30m, 1h, 4h, 1d, 1w)
 
 Optional Parameters:
   - validated_only=true/false    → Filter to validated records only (default: true)
@@ -58,8 +61,9 @@ GET  /api/v1/performance/summary                   → Overall performance
 ```
 GET    /api/v1/admin/symbols                      → List tracked symbols
 POST   /api/v1/admin/symbols                      → Add new symbol
-GET    /api/v1/admin/symbols/{symbol}             → Get symbol info
+GET    /api/v1/admin/symbols/{symbol}             → Get symbol info (includes timeframes)
 PUT    /api/v1/admin/symbols/{symbol}?active=    → Update symbol status
+PUT    /api/v1/admin/symbols/{symbol}/timeframes → Update symbol timeframes (NEW)
 DELETE /api/v1/admin/symbols/{symbol}             → Deactivate symbol
 
 GET    /api/v1/admin/api-keys                     → List API keys
@@ -78,22 +82,54 @@ DELETE /api/v1/admin/api-keys/{key_id}            → Delete key
 curl http://localhost:8000/api/v1/status | python -m json.tool
 ```
 
-### Fetch Historical Data
+### Fetch Historical Data (Daily Candles)
 ```bash
-curl "http://localhost:8000/api/v1/historical/AAPL?start=2024-01-01&end=2024-01-31" \
+curl "http://localhost:8000/api/v1/historical/AAPL?start=2024-01-01&end=2024-01-31&timeframe=1d" \
+  | python -m json.tool
+```
+
+### Fetch Hourly Data
+```bash
+curl "http://localhost:8000/api/v1/historical/AAPL?start=2024-01-01&end=2024-01-31&timeframe=1h" \
+  | python -m json.tool
+```
+
+### Fetch Intraday (15-minute) Candles
+```bash
+curl "http://localhost:8000/api/v1/historical/MSFT?start=2024-01-01&end=2024-01-31&timeframe=15m" \
+  | python -m json.tool
+```
+
+### Fetch 5-Minute Candles
+```bash
+curl "http://localhost:8000/api/v1/historical/BTCUSD?start=2024-01-01&end=2024-01-31&timeframe=5m" \
+  | python -m json.tool
+```
+
+### Fetch Weekly Candles
+```bash
+curl "http://localhost:8000/api/v1/historical/GOOGL?start=2023-01-01&end=2024-01-31&timeframe=1w" \
   | python -m json.tool
 ```
 
 ### Get Validated Data Only
 ```bash
-curl "http://localhost:8000/api/v1/historical/MSFT?start=2024-01-01&end=2024-01-31&validated_only=true" \
+curl "http://localhost:8000/api/v1/historical/MSFT?start=2024-01-01&end=2024-01-31&timeframe=1d&validated_only=true" \
   | python -m json.tool
 ```
 
 ### Filter by Quality Score
 ```bash
-curl "http://localhost:8000/api/v1/historical/GOOGL?start=2024-01-01&end=2024-01-31&min_quality=0.95" \
+curl "http://localhost:8000/api/v1/historical/GOOGL?start=2024-01-01&end=2024-01-31&timeframe=1d&min_quality=0.95" \
   | python -m json.tool
+```
+
+### Update Symbol Timeframes
+```bash
+curl -X PUT http://localhost:8000/api/v1/admin/symbols/AAPL/timeframes \
+  -H "X-API-Key: your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{"timeframes": ["5m", "1h", "1d"]}' | python -m json.tool
 ```
 
 ### Get Observability Metrics
@@ -152,6 +188,22 @@ done
 
 ---
 
+## Supported Timeframes
+
+All endpoints use these timeframe codes:
+
+| Code | Description |
+|------|-------------|
+| 5m | 5-minute candles |
+| 15m | 15-minute candles |
+| 30m | 30-minute candles |
+| 1h | Hourly candles |
+| 4h | 4-hour candles |
+| 1d | Daily candles (default) |
+| 1w | Weekly candles |
+
+---
+
 ## Response Codes
 
 | Code | Meaning |
@@ -185,6 +237,14 @@ curl http://localhost:8000/api/v1/status | python -m json.tool
 # Wrong: /api/v1/historical/AAPL?start=01/01/2024&end=12/31/2024
 # Correct:
 curl "http://localhost:8000/api/v1/historical/AAPL?start=2024-01-01&end=2024-12-31"
+```
+
+### Issue: "Invalid timeframe"
+**Solution:** Use only supported timeframes (5m, 15m, 30m, 1h, 4h, 1d, 1w):
+```bash
+# Wrong: /api/v1/historical/AAPL?timeframe=2h
+# Correct:
+curl "http://localhost:8000/api/v1/historical/AAPL?start=2024-01-01&end=2024-01-31&timeframe=1h"
 ```
 
 ### Issue: "Admin endpoint returns 401"
@@ -285,6 +345,36 @@ Error responses:
 
 ---
 
+## Timeframe Examples
+
+### Configure Symbol Timeframes
+```bash
+curl -X PUT http://localhost:8000/api/v1/admin/symbols/AAPL/timeframes \
+  -H "X-API-Key: your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "timeframes": ["5m", "1h", "1d"]
+  }'
+```
+
+Response:
+```json
+{
+  "symbol": "AAPL",
+  "timeframes": ["5m", "1h", "1d"],
+  "active": true,
+  "updated_at": "2025-11-11T14:30:00Z"
+}
+```
+
+### Get Symbol Timeframe Configuration
+```bash
+curl -H "X-API-Key: your-api-key" \
+  http://localhost:8000/api/v1/admin/symbols/AAPL
+```
+
+---
+
 **Last Updated:** 2025-11-11
-**Version:** 1.0.0
+**Version:** 1.0.0 (Phase 7 - Multi-Timeframe Support)
 **Status:** Production Ready ✓

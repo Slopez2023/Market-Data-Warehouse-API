@@ -390,7 +390,8 @@ class TestSymbolManagerAddSymbol:
                     'asset_class': 'stock',
                     'active': True,
                     'date_added': datetime.now(),
-                    'backfill_status': 'pending'
+                    'backfill_status': 'pending',
+                    'timeframes': ['1h', '1d']
                 }
             ]
             
@@ -417,7 +418,8 @@ class TestSymbolManagerAddSymbol:
                     'asset_class': 'crypto',
                     'active': True,
                     'date_added': datetime.now(),
-                    'backfill_status': 'pending'
+                    'backfill_status': 'pending',
+                    'timeframes': ['1h', '1d']
                 }
             ]
             
@@ -458,7 +460,8 @@ class TestSymbolManagerAddSymbol:
                     'asset_class': 'stock',
                     'active': True,
                     'date_added': datetime.now(),
-                    'backfill_status': 'pending'
+                    'backfill_status': 'pending',
+                    'timeframes': ['1h', '1d']
                 }
             ]
             
@@ -482,12 +485,12 @@ class TestSymbolManagerGetSymbols:
                 {
                     'id': 1, 'symbol': 'AAPL', 'asset_class': 'stock',
                     'active': True, 'date_added': datetime.now(),
-                    'last_backfill': None, 'backfill_status': 'pending'
+                    'last_backfill': None, 'backfill_status': 'pending', 'timeframes': ['1h', '1d']
                 },
                 {
                     'id': 2, 'symbol': 'MSFT', 'asset_class': 'stock',
                     'active': True, 'date_added': datetime.now(),
-                    'last_backfill': None, 'backfill_status': 'pending'
+                    'last_backfill': None, 'backfill_status': 'pending', 'timeframes': ['1h', '1d']
                 }
             ]
             
@@ -509,12 +512,12 @@ class TestSymbolManagerGetSymbols:
                 {
                     'id': 1, 'symbol': 'AAPL', 'asset_class': 'stock',
                     'active': True, 'date_added': datetime.now(),
-                    'last_backfill': None, 'backfill_status': 'pending'
+                    'last_backfill': None, 'backfill_status': 'pending', 'timeframes': ['1h', '1d']
                 },
                 {
                     'id': 3, 'symbol': 'DEAD', 'asset_class': 'stock',
                     'active': False, 'date_added': datetime.now(),
-                    'last_backfill': None, 'backfill_status': 'pending'
+                    'last_backfill': None, 'backfill_status': 'pending', 'timeframes': ['1h', '1d']
                 }
             ]
             
@@ -536,7 +539,7 @@ class TestSymbolManagerGetSymbols:
             mock_conn.fetchrow.return_value = {
                 'id': 1, 'symbol': 'AAPL', 'asset_class': 'stock',
                 'active': True, 'date_added': datetime.now(),
-                'last_backfill': None, 'backfill_status': 'completed'
+                'last_backfill': None, 'backfill_status': 'completed', 'timeframes': ['1h', '1d']
             }
             
             result = await manager.get_symbol('AAPL')
@@ -672,7 +675,7 @@ class TestSymbolEndpointsCreate:
             'asset_class': 'stock',
             'active': True,
             'date_added': datetime.now().isoformat(),
-            'backfill_status': 'pending'
+            'backfill_status': 'pending', 'timeframes': ['1h', '1d']
         }
         
         with patch('main.get_symbol_manager', return_value=mock_symbol_manager):
@@ -693,7 +696,7 @@ class TestSymbolEndpointsCreate:
             'asset_class': 'stock',
             'active': True,
             'date_added': datetime.now().isoformat(),
-            'backfill_status': 'pending'
+            'backfill_status': 'pending', 'timeframes': ['1h', '1d']
         }
         
         with patch('main.get_symbol_manager', return_value=mock_symbol_manager):
@@ -716,7 +719,7 @@ class TestSymbolEndpointsList:
             {
                 'id': 1, 'symbol': 'AAPL', 'asset_class': 'stock',
                 'active': True, 'date_added': datetime.now().isoformat(),
-                'last_backfill': None, 'backfill_status': 'pending'
+                'last_backfill': None, 'backfill_status': 'pending', 'timeframes': ['1h', '1d']
             }
         ]
         
@@ -735,7 +738,7 @@ class TestSymbolEndpointsList:
             {
                 'id': 1, 'symbol': 'AAPL', 'asset_class': 'stock',
                 'active': True, 'date_added': datetime.now().isoformat(),
-                'last_backfill': None, 'backfill_status': 'pending'
+                'last_backfill': None, 'backfill_status': 'pending', 'timeframes': ['1h', '1d']
             }
         ]
         
@@ -756,7 +759,7 @@ class TestSymbolEndpointsRetrieve:
         mock_symbol_manager.get_symbol.return_value = {
             'id': 1, 'symbol': 'AAPL', 'asset_class': 'stock',
             'active': True, 'date_added': datetime.now().isoformat(),
-            'last_backfill': None, 'backfill_status': 'completed'
+            'last_backfill': None, 'backfill_status': 'completed', 'timeframes': ['1h', '1d']
         }
         
         with patch('main.get_symbol_manager', return_value=mock_symbol_manager):
@@ -965,7 +968,7 @@ class TestCryptoAssetSupport:
                 {
                     'id': 1, 'symbol': 'BTC', 'asset_class': 'crypto',
                     'active': True, 'date_added': datetime.now(),
-                    'backfill_status': 'pending'
+                    'backfill_status': 'pending', 'timeframes': ['1h', '1d']
                 }
             ]
             
@@ -988,7 +991,7 @@ class TestCryptoAssetSupport:
                 {
                     'id': 2, 'symbol': 'ETH', 'asset_class': 'crypto',
                     'active': True, 'date_added': datetime.now(),
-                    'backfill_status': 'pending'
+                    'backfill_status': 'pending', 'timeframes': ['1h', '1d']
                 }
             ]
             
@@ -1008,17 +1011,17 @@ class TestCryptoAssetSupport:
                 {
                     'id': 1, 'symbol': 'AAPL', 'asset_class': 'stock',
                     'active': True, 'date_added': datetime.now(),
-                    'last_backfill': None, 'backfill_status': 'completed'
+                    'last_backfill': None, 'backfill_status': 'completed', 'timeframes': ['1h', '1d']
                 },
                 {
                     'id': 2, 'symbol': 'BTC', 'asset_class': 'crypto',
                     'active': True, 'date_added': datetime.now(),
-                    'last_backfill': None, 'backfill_status': 'completed'
+                    'last_backfill': None, 'backfill_status': 'completed', 'timeframes': ['1h', '1d']
                 },
                 {
                     'id': 3, 'symbol': 'SPY', 'asset_class': 'etf',
                     'active': True, 'date_added': datetime.now(),
-                    'last_backfill': None, 'backfill_status': 'pending'
+                    'last_backfill': None, 'backfill_status': 'pending', 'timeframes': ['1h', '1d']
                 }
             ]
             
@@ -1044,7 +1047,7 @@ class TestCryptoAssetSupport:
                 {
                     'id': 1, 'symbol': 'XRP', 'asset_class': 'crypto',
                     'active': True, 'date_added': datetime.now(),
-                    'backfill_status': 'pending'
+                    'backfill_status': 'pending', 'timeframes': ['1h', '1d']
                 }
             ]
             
@@ -1056,7 +1059,7 @@ class TestCryptoAssetSupport:
         mock_symbol_manager.add_symbol.return_value = {
             'id': 1, 'symbol': 'BTC', 'asset_class': 'crypto',
             'active': True, 'date_added': datetime.now().isoformat(),
-            'backfill_status': 'pending'
+            'backfill_status': 'pending', 'timeframes': ['1h', '1d']
         }
         
         with patch('main.get_symbol_manager', return_value=mock_symbol_manager):
@@ -1081,7 +1084,7 @@ class TestCryptoAssetSupport:
                 {
                     'id': i, 'symbol': sym, 'asset_class': 'crypto',
                     'active': True, 'date_added': datetime.now(),
-                    'last_backfill': None, 'backfill_status': 'pending'
+                    'last_backfill': None, 'backfill_status': 'pending', 'timeframes': ['1h', '1d']
                 }
                 for i, sym in enumerate(['BTC', 'ETH', 'XRP'], 1)
             ]
@@ -1142,13 +1145,13 @@ class TestCryptoAndStockIntegration:
                 {
                     'id': 1, 'symbol': 'AAPL', 'asset_class': 'stock',
                     'active': True, 'date_added': datetime.now(),
-                    'backfill_status': 'pending'
+                    'backfill_status': 'pending', 'timeframes': ['1h', '1d']
                 },
                 None,  # Check if BTC exists
                 {
                     'id': 2, 'symbol': 'BTC', 'asset_class': 'crypto',
                     'active': True, 'date_added': datetime.now(),
-                    'backfill_status': 'pending'
+                    'backfill_status': 'pending', 'timeframes': ['1h', '1d']
                 }
             ]
             
@@ -1238,9 +1241,9 @@ class TestSymbolManagerDatabaseAdvanced:
             mock_connect.return_value = mock_conn
             
             mock_conn.fetchrow.side_effect = [
-                None, {'id': 1, 'symbol': 'AAPL', 'asset_class': 'stock', 'active': True, 'date_added': datetime.now(), 'backfill_status': 'pending'},
-                None, {'id': 2, 'symbol': 'MSFT', 'asset_class': 'stock', 'active': True, 'date_added': datetime.now(), 'backfill_status': 'pending'},
-                None, {'id': 3, 'symbol': 'GOOGL', 'asset_class': 'stock', 'active': True, 'date_added': datetime.now(), 'backfill_status': 'pending'},
+                None, {'id': 1, 'symbol': 'AAPL', 'asset_class': 'stock', 'active': True, 'date_added': datetime.now(), 'backfill_status': 'pending', 'timeframes': ['1h', '1d']},
+                None, {'id': 2, 'symbol': 'MSFT', 'asset_class': 'stock', 'active': True, 'date_added': datetime.now(), 'backfill_status': 'pending', 'timeframes': ['1h', '1d']},
+                None, {'id': 3, 'symbol': 'GOOGL', 'asset_class': 'stock', 'active': True, 'date_added': datetime.now(), 'backfill_status': 'pending', 'timeframes': ['1h', '1d']},
             ]
             
             result1 = await manager.add_symbol('AAPL', 'stock')
@@ -1356,7 +1359,7 @@ class TestCryptoAdvanced:
                 side_effects.append({
                     'id': i, 'symbol': crypto, 'asset_class': 'crypto',
                     'active': True, 'date_added': datetime.now(),
-                    'backfill_status': 'pending'
+                    'backfill_status': 'pending', 'timeframes': ['1h', '1d']
                 })
             
             mock_conn.fetchrow.side_effect = side_effects
@@ -1381,7 +1384,7 @@ class TestCryptoAdvanced:
                     {
                         'id': 1, 'symbol': stablecoin, 'asset_class': 'crypto',
                         'active': True, 'date_added': datetime.now(),
-                        'backfill_status': 'pending'
+                        'backfill_status': 'pending', 'timeframes': ['1h', '1d']
                     }
                 ]
                 
@@ -1456,7 +1459,7 @@ class TestSymbolManagement:
             # Create
             mock_conn.fetchrow.side_effect = [
                 None,
-                {'id': 1, 'symbol': 'TEST', 'asset_class': 'stock', 'active': True, 'date_added': datetime.now(), 'backfill_status': 'pending'}
+                {'id': 1, 'symbol': 'TEST', 'asset_class': 'stock', 'active': True, 'date_added': datetime.now(), 'backfill_status': 'pending', 'timeframes': ['1h', '1d']}
             ]
             result = await manager.add_symbol('TEST', 'stock')
             assert result['active'] is True
@@ -1521,7 +1524,7 @@ class TestDataIntegrity:
             # First add succeeds
             side_effects = [
                 None,  # Check if exists (first call)
-                {'id': 1, 'symbol': 'AAPL', 'asset_class': 'stock', 'active': True, 'date_added': datetime.now(), 'backfill_status': 'pending'},  # Insert result
+                {'id': 1, 'symbol': 'AAPL', 'asset_class': 'stock', 'active': True, 'date_added': datetime.now(), 'backfill_status': 'pending', 'timeframes': ['1h', '1d']},  # Insert result
                 {'id': 1},  # Check if exists (second call - returns existing)
             ]
             mock_conn.fetchrow.side_effect = side_effects
@@ -1546,7 +1549,7 @@ class TestDataIntegrity:
             mock_conn.fetchrow.return_value = {
                 'id': 1, 'symbol': 'AAPL', 'asset_class': 'stock',
                 'active': True, 'date_added': datetime.now(),
-                'last_backfill': None, 'backfill_status': 'pending'
+                'last_backfill': None, 'backfill_status': 'pending', 'timeframes': ['1h', '1d']
             }
             
             result = await manager.get_symbol('AAPL')

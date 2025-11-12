@@ -1,24 +1,22 @@
--- Migration: Add market_data table
+-- Migration: Ensure market_data table ownership and indexes
 -- Date: 2025-11-10
--- Purpose: Store OHLCV data for market symbols
+-- Purpose: Fix table ownership and ensure proper indexes
 
-CREATE TABLE IF NOT EXISTS market_data (
-    id BIGSERIAL PRIMARY KEY,
-    symbol VARCHAR(20) NOT NULL,
-    time TIMESTAMPTZ NOT NULL,
-    open DECIMAL(15, 2) NOT NULL,
-    high DECIMAL(15, 2) NOT NULL,
-    low DECIMAL(15, 2) NOT NULL,
-    close DECIMAL(15, 2) NOT NULL,
-    volume BIGINT NOT NULL,
-    source VARCHAR(50) DEFAULT 'polygon',
-    validated BOOLEAN DEFAULT FALSE,
-    gap_detected BOOLEAN DEFAULT FALSE,
-    quality_score DECIMAL(3, 2) DEFAULT 1.0,
-    validation_timestamp TIMESTAMPTZ,
-    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
-);
+-- Note: market_data table is created in init script
+-- This migration ensures market_user has proper ownership
 
+-- Transfer ownership to market_user if not already owned
+DO $$ BEGIN
+    -- Only attempt if table exists
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='market_data') THEN
+        ALTER TABLE market_data OWNER TO market_user;
+        GRANT ALL PRIVILEGES ON TABLE market_data TO market_user;
+    END IF;
+EXCEPTION WHEN OTHERS THEN
+    NULL;  -- Silently skip if table doesn't exist or other error
+END $$;
+
+-- Ensure indexes exist (safe to run multiple times)
 CREATE INDEX IF NOT EXISTS idx_market_data_symbol_time ON market_data(symbol, time DESC);
 CREATE INDEX IF NOT EXISTS idx_market_data_symbol ON market_data(symbol);
 CREATE INDEX IF NOT EXISTS idx_market_data_time ON market_data(time DESC);

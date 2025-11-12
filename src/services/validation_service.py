@@ -223,3 +223,109 @@ class ValidationService:
         except Exception as e:
             logger.error(f"Error calculating median volume: {e}")
             return 0
+    
+    def validate_dividend(self, symbol: str, dividend: Dict) -> Tuple[bool, Dict]:
+        """
+        Validate dividend record from Polygon API.
+        
+        Args:
+            symbol: Stock ticker
+            dividend: Dividend dict from API
+        
+        Returns:
+            (is_valid, metadata)
+        """
+        metadata = {
+            'symbol': symbol,
+            'validation_errors': [],
+            'warnings': []
+        }
+        
+        try:
+            # Required fields
+            ex_date = dividend.get('ex_dividend_date')
+            amount = dividend.get('cash_amount')
+            
+            if not ex_date:
+                metadata['validation_errors'].append("Missing ex_dividend_date")
+            
+            if amount is None:
+                metadata['validation_errors'].append("Missing cash_amount")
+            else:
+                # Validate amount
+                try:
+                    amount_float = float(amount)
+                    if amount_float < 0:
+                        metadata['validation_errors'].append("Negative dividend amount")
+                    if amount_float > 100:
+                        metadata['warnings'].append(f"Unusually high dividend: ${amount_float}")
+                except (ValueError, TypeError):
+                    metadata['validation_errors'].append("Invalid cash_amount format")
+            
+            # Optional field validation
+            pay_date = dividend.get('pay_date')
+            record_date = dividend.get('record_date')
+            
+            # Sanity check: ex_date <= record_date <= pay_date
+            if ex_date and record_date:
+                if ex_date > record_date:
+                    metadata['warnings'].append("ex_date > record_date (unusual)")
+            
+        except Exception as e:
+            logger.error(f"Error validating dividend for {symbol}: {e}")
+            metadata['validation_errors'].append(f"Validation exception: {str(e)}")
+        
+        is_valid = len(metadata['validation_errors']) == 0
+        return is_valid, metadata
+    
+    def validate_split(self, symbol: str, split: Dict) -> Tuple[bool, Dict]:
+        """
+        Validate stock split record from Polygon API.
+        
+        Args:
+            symbol: Stock ticker
+            split: Stock split dict from API
+        
+        Returns:
+            (is_valid, metadata)
+        """
+        metadata = {
+            'symbol': symbol,
+            'validation_errors': [],
+            'warnings': []
+        }
+        
+        try:
+            # Required fields
+            execution_date = split.get('execution_date')
+            split_from = split.get('split_from')
+            split_to = split.get('split_to')
+            
+            if not execution_date:
+                metadata['validation_errors'].append("Missing execution_date")
+            
+            if split_from is None or split_to is None:
+                metadata['validation_errors'].append("Missing split_from or split_to")
+            else:
+                # Validate split ratio
+                try:
+                    from_int = int(split_from)
+                    to_int = int(split_to)
+                    
+                    if from_int <= 0 or to_int <= 0:
+                        metadata['validation_errors'].append("split_from/split_to must be positive")
+                    
+                    # Sanity check: splits rarely exceed 100:1 or 1:100
+                    ratio = to_int / from_int if from_int > 0 else 0
+                    if ratio > 100 or ratio < 0.01:
+                        metadata['warnings'].append(f"Unusual split ratio: {from_int}:{to_int}")
+                
+                except (ValueError, TypeError):
+                    metadata['validation_errors'].append("Invalid split_from/split_to format")
+        
+        except Exception as e:
+            logger.error(f"Error validating split for {symbol}: {e}")
+            metadata['validation_errors'].append(f"Validation exception: {str(e)}")
+        
+        is_valid = len(metadata['validation_errors']) == 0
+        return is_valid, metadata

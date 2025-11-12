@@ -48,7 +48,8 @@ class DatabaseService:
         self,
         symbol: str,
         candles: List[Dict],
-        metadata: List[Dict]
+        metadata: List[Dict],
+        timeframe: str = '1d'
     ) -> int:
         """
         Insert batch of OHLCV candles with validation metadata.
@@ -57,6 +58,7 @@ class DatabaseService:
             symbol: Stock ticker
             candles: List of {time, o, h, l, c, v}
             metadata: List of {quality_score, validated, validation_notes, gap_detected, volume_anomaly}
+            timeframe: Candle timeframe (default: '1d')
         
         Returns:
             Number of rows inserted
@@ -93,7 +95,8 @@ class DatabaseService:
                     'gap_detected': meta['gap_detected'],
                     'volume_anomaly': meta['volume_anomaly'],
                     'source': 'polygon',
-                    'fetched_at': datetime.utcnow()
+                    'fetched_at': datetime.utcnow(),
+                    'timeframe': timeframe
                 })
             
             # Execute batch insert
@@ -101,12 +104,12 @@ class DatabaseService:
             insert_stmt = text("""
                 INSERT INTO market_data 
                 (time, symbol, open, high, low, close, volume, validated, quality_score, 
-                 validation_notes, gap_detected, volume_anomaly, source, fetched_at)
+                 validation_notes, gap_detected, volume_anomaly, source, fetched_at, timeframe)
                 VALUES 
                 (:time, :symbol, :open, :high, :low, :close, :volume, :validated, 
                  :quality_score, :validation_notes, :gap_detected, :volume_anomaly, 
-                 :source, :fetched_at)
-                ON CONFLICT (symbol, time) DO UPDATE SET
+                 :source, :fetched_at, :timeframe)
+                ON CONFLICT (symbol, time, timeframe) DO UPDATE SET
                     validated = EXCLUDED.validated,
                     quality_score = EXCLUDED.quality_score,
                     validation_notes = EXCLUDED.validation_notes,
@@ -136,6 +139,7 @@ class DatabaseService:
         symbol: str,
         start: str,
         end: str,
+        timeframe: str = '1d',
         validated_only: bool = True,
         min_quality: float = 0.85
     ) -> List[Dict]:
@@ -146,6 +150,7 @@ class DatabaseService:
             symbol: Stock ticker
             start: Start date YYYY-MM-DD
             end: End date YYYY-MM-DD
+            timeframe: Candle timeframe (default: '1d')
             validated_only: Only return validated candles
             min_quality: Minimum quality score (0.0-1.0)
         
@@ -158,11 +163,12 @@ class DatabaseService:
             # Build WHERE clause conditions
             conditions = [
                 "symbol = %s",
+                "timeframe = %s",
                 "time >= %s::timestamp",
                 "time < %s::timestamp + INTERVAL '1 day'"
             ]
             
-            query_params = [symbol, start, end]
+            query_params = [symbol, timeframe, start, end]
             
             if validated_only:
                 conditions.append("validated = TRUE")
@@ -174,7 +180,7 @@ class DatabaseService:
             
             sql = f"""
                 SELECT 
-                    time, symbol, open, high, low, close, volume,
+                    time, symbol, timeframe, open, high, low, close, volume,
                     source, validated, quality_score, validation_notes,
                     gap_detected, volume_anomaly, fetched_at
                 FROM market_data
@@ -195,18 +201,19 @@ class DatabaseService:
                 data.append({
                     'time': row[0].isoformat() if row[0] else None,
                     'symbol': row[1],
-                    'open': float(row[2]),
-                    'high': float(row[3]),
-                    'low': float(row[4]),
-                    'close': float(row[5]),
-                    'volume': row[6],
-                    'source': row[7],
-                    'validated': row[8],
-                    'quality_score': float(row[9]),
-                    'validation_notes': row[10],
-                    'gap_detected': row[11],
-                    'volume_anomaly': row[12],
-                    'fetched_at': row[13].isoformat() if row[13] else None
+                    'timeframe': row[2],
+                    'open': float(row[3]),
+                    'high': float(row[4]),
+                    'low': float(row[5]),
+                    'close': float(row[6]),
+                    'volume': row[7],
+                    'source': row[8],
+                    'validated': row[9],
+                    'quality_score': float(row[10]),
+                    'validation_notes': row[11],
+                    'gap_detected': row[12],
+                    'volume_anomaly': row[13],
+                    'fetched_at': row[14].isoformat() if row[14] else None
                 })
             
             logger.info(f"Retrieved {len(data)} records for {symbol} ({start} to {end})")

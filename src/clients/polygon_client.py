@@ -214,3 +214,131 @@ class PolygonClient:
         except Exception as e:
             logger.error(f"Error fetching ticker details for {symbol}: {e}")
             return None
+    
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10)
+    )
+    async def fetch_dividends(
+        self,
+        symbol: str,
+        start: str,
+        end: str
+    ) -> List[Dict]:
+        """
+        Fetch historical dividends for a stock.
+        
+        Args:
+            symbol: Stock ticker (e.g., 'AAPL')
+            start: Start date YYYY-MM-DD
+            end: End date YYYY-MM-DD
+        
+        Returns:
+            List of dividend records from Polygon API
+        
+        Raises:
+            ValueError: If API error or rate limit
+        """
+        url = "https://api.polygon.io/v2/reference/dividends"
+        
+        params = {
+            "ticker": symbol,
+            "from": start,
+            "to": end,
+            "apiKey": self.api_key,
+            "limit": 1000
+        }
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, params=params, timeout=30) as response:
+                    
+                    if response.status == 429:
+                        logger.warning(f"Rate limited (429) fetching dividends for {symbol}")
+                        raise ValueError("Rate limited (429) - too many requests")
+                    
+                    if response.status != 200:
+                        logger.error(f"API error {response.status} fetching dividends for {symbol}")
+                        raise ValueError(f"API returned status {response.status}")
+                    
+                    data = await response.json()
+                    
+                    # Check for API-level errors
+                    if data.get("status") == "ERROR":
+                        logger.warning(f"Polygon API error for {symbol} dividends: {data.get('message')}")
+                        return []
+                    
+                    results = data.get("results", [])
+                    logger.info(f"Fetched {len(results)} dividends for {symbol} ({start} to {end})")
+                    return results
+        
+        except aiohttp.ClientError as e:
+            logger.error(f"Network error fetching dividends for {symbol}: {e}")
+            raise ValueError(f"Network error: {e}")
+        except Exception as e:
+            logger.error(f"Unexpected error fetching dividends for {symbol}: {e}")
+            raise
+    
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10)
+    )
+    async def fetch_stock_splits(
+        self,
+        symbol: str,
+        start: str,
+        end: str
+    ) -> List[Dict]:
+        """
+        Fetch historical stock splits for a stock.
+        
+        Args:
+            symbol: Stock ticker (e.g., 'AAPL')
+            start: Start date YYYY-MM-DD
+            end: End date YYYY-MM-DD
+        
+        Returns:
+            List of stock split records from Polygon API
+        
+        Raises:
+            ValueError: If API error or rate limit
+        """
+        url = "https://api.polygon.io/v2/reference/splits"
+        
+        params = {
+            "ticker": symbol,
+            "from": start,
+            "to": end,
+            "apiKey": self.api_key,
+            "limit": 1000
+        }
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, params=params, timeout=30) as response:
+                    
+                    if response.status == 429:
+                        logger.warning(f"Rate limited (429) fetching splits for {symbol}")
+                        raise ValueError("Rate limited (429) - too many requests")
+                    
+                    if response.status != 200:
+                        logger.error(f"API error {response.status} fetching splits for {symbol}")
+                        raise ValueError(f"API returned status {response.status}")
+                    
+                    data = await response.json()
+                    
+                    # Check for API-level errors
+                    if data.get("status") == "ERROR":
+                        logger.warning(f"Polygon API error for {symbol} splits: {data.get('message')}")
+                        return []
+                    
+                    results = data.get("results", [])
+                    logger.info(f"Fetched {len(results)} splits for {symbol} ({start} to {end})")
+                    return results
+        
+        except aiohttp.ClientError as e:
+            logger.error(f"Network error fetching splits for {symbol}: {e}")
+            raise ValueError(f"Network error: {e}")
+        except Exception as e:
+            logger.error(f"Unexpected error fetching splits for {symbol}: {e}")
+            raise

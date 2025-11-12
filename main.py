@@ -19,7 +19,7 @@ except Exception:
     # dotenv is optional at runtime; uvicorn also auto-loads .env when available
     pass
 
-from src.config import config
+from src.config import config, ALLOWED_TIMEFRAMES
 from src.scheduler import AutoBackfillScheduler, get_last_backfill_result, get_last_backfill_time
 from src.services.database_service import DatabaseService
 from src.models import (
@@ -276,9 +276,31 @@ async def get_status():
         raise HTTPException(status_code=500, detail=f"Status check failed: {str(e)}")
 
 
+def validate_timeframe(timeframe: str) -> str:
+    """
+    Validate timeframe against allowed list.
+    
+    Args:
+        timeframe: Timeframe code to validate
+        
+    Returns:
+        timeframe: Valid timeframe (uppercase)
+        
+    Raises:
+        ValueError: If timeframe is invalid
+    """
+    if timeframe not in ALLOWED_TIMEFRAMES:
+        raise ValueError(
+            f"Invalid timeframe: {timeframe}. "
+            f"Allowed: {', '.join(ALLOWED_TIMEFRAMES)}"
+        )
+    return timeframe
+
+
 @app.get("/api/v1/historical/{symbol}")
 async def get_historical_data(
     symbol: str,
+    timeframe: str = Query("1d", description="Timeframe: 5m, 15m, 30m, 1h, 4h, 1d, 1w"),
     start: str = Query(..., description="Start date YYYY-MM-DD"),
     end: str = Query(..., description="End date YYYY-MM-DD"),
     validated_only: bool = Query(True, description="Filter to validated candles only"),
@@ -288,11 +310,13 @@ async def get_historical_data(
     Fetch historical OHLCV data for a symbol.
     
     Example:
-    - GET /api/v1/historical/AAPL?start=2022-01-01&end=2023-12-31
-    - GET /api/v1/historical/MSFT?start=2023-01-01&end=2023-12-31&validated_only=false
+    - GET /api/v1/historical/AAPL?timeframe=1d&start=2022-01-01&end=2023-12-31
+    - GET /api/v1/historical/MSFT?timeframe=1h&start=2023-01-01&end=2023-12-31&validated_only=false
+    - GET /api/v1/historical/BTC?timeframe=4h&start=2023-11-01&end=2023-11-30
     
     Parameters:
     - symbol: Stock ticker (e.g., AAPL, MSFT, SPY)
+    - timeframe: Candle timeframe (5m, 15m, 30m, 1h, 4h, 1d, 1w) - default: 1d
     - start: Start date in YYYY-MM-DD format
     - end: End date in YYYY-MM-DD format
     - validated_only: If true, only return candles with quality_score >= min_quality
@@ -302,6 +326,12 @@ async def get_historical_data(
     - Array of OHLCV candles with validation metadata
     """
     try:
+        # Validate timeframe
+        try:
+            timeframe = validate_timeframe(timeframe)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        
         # Validate date format
         try:
             datetime.strptime(start, "%Y-%m-%d")
@@ -312,9 +342,10 @@ async def get_historical_data(
                 detail="Invalid date format. Use YYYY-MM-DD"
             )
         
-        # Fetch data
+        # Fetch data (filtered by timeframe)
         data = db.get_historical_data(
             symbol=symbol.upper(),
+            timeframe=timeframe,
             start=start,
             end=end,
             validated_only=validated_only,
@@ -324,11 +355,12 @@ async def get_historical_data(
         if not data:
             raise HTTPException(
                 status_code=404,
-                detail=f"No data found for {symbol.upper()} ({start} to {end})"
+                detail=f"No data found for {symbol.upper()} timeframe={timeframe} ({start} to {end})"
             )
         
         return {
             "symbol": symbol.upper(),
+            "timeframe": timeframe,
             "start_date": start,
             "end_date": end,
             "count": len(data),
@@ -361,6 +393,77 @@ async def list_symbols():
     
     except Exception as e:
         logger.error(f"Error listing symbols: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+def calculate_symbol_status(symbol: dict) -> str:
+    """
+    Determine symbol health status based on validation rate and data age.
+    
+    Args:
+        symbol: Dict with 'validation_rate', 'latest_data', 'data_age_hours'
+    
+    Returns:
+        "healthy" | "warning" | "stale"
+    """
+    validation_rate = symbol.get("validation_rate", 0)
+    data_age_hours = symbol.get("data_age_hours", float('inf'))
+    
+    # Stale: old data OR very low validation
+    if data_age_hours > 72 or validation_rate < 85:
+        return "stale"
+    
+    # Warning: moderately old OR moderate validation issues
+    if data_age_hours > 24 or validation_rate < 95:
+        return "warning"
+    
+    # Healthy: recent data AND good validation
+    return "healthy"
+
+
+@app.get("/api/v1/symbols/detailed")
+async def get_symbols_detailed():
+    """
+    Get detailed statistics for all symbols in the database.
+    
+    Returns array of symbols with:
+    - symbol: Ticker name
+    - records: Total OHLCV records
+    - validation_rate: Percentage of validated records (0-100)
+    - latest_data: Most recent data timestamp
+    - status: Health status (healthy/warning/stale)
+    - data_age_hours: Hours since last update
+    """
+    try:
+        # Get all symbols from database
+        metrics = db.get_status_metrics()
+        symbol_count = metrics.get("symbols_available", 0)
+        
+        if symbol_count == 0:
+            return {
+                "count": 0,
+                "symbols": [],
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        
+        # Query database for per-symbol stats
+        symbols_data = db.get_all_symbols_detailed()
+        
+        # Enrich with status calculation
+        for symbol in symbols_data:
+            symbol["status"] = calculate_symbol_status(symbol)
+        
+        # Sort by symbol name
+        symbols_data = sorted(symbols_data, key=lambda x: x["symbol"])
+        
+        return {
+            "count": len(symbols_data),
+            "timestamp": datetime.utcnow().isoformat(),
+            "symbols": symbols_data
+        }
+    
+    except Exception as e:
+        logger.error("Detailed symbols query error", extra={"error": str(e)})
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -637,10 +740,18 @@ async def get_symbol_info(symbol: str):
     Requires X-API-Key header.
     
     Returns symbol metadata plus stats:
+    - symbol: Ticker symbol
+    - asset_class: Type of asset (stock, crypto, etf, etc.)
+    - active: Whether symbol is actively being tracked
+    - timeframes: List of configured timeframes being fetched
     - record_count: Number of OHLCV records in database
     - date_range: Start and end dates of available data
     - validation_rate: Percentage of validated records (0.0-1.0)
     - gaps_detected: Number of trading days with gaps
+    
+    Example:
+        GET /api/v1/admin/symbols/AAPL
+        Headers: X-API-Key: xxx
     """
     try:
         symbol_manager = get_symbol_manager()
@@ -655,6 +766,7 @@ async def get_symbol_info(symbol: str):
         
         logger.info("Symbol info retrieved via API", extra={
             "symbol": symbol,
+            "timeframes": result.get("timeframes", []),
             "record_count": stats.get("record_count", 0)
         })
         
@@ -706,6 +818,59 @@ async def update_symbol(symbol: str, active: bool = None):
         raise
     except Exception as e:
         logger.error(f"Symbol update error for {symbol}", extra={"error": str(e)})
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/v1/admin/symbols/{symbol}/timeframes", response_model=TrackedSymbol)
+async def update_symbol_timeframes(symbol: str, request: UpdateSymbolTimeframesRequest):
+    """
+    Update configured timeframes for a symbol.
+    
+    Requires X-API-Key header.
+    
+    Updates which timeframes (5m, 15m, 30m, 1h, 4h, 1d, 1w) the scheduler will fetch
+    for this symbol. Duplicates are removed and timeframes are sorted.
+    
+    Parameters:
+    - symbol: Ticker symbol
+    - timeframes: List of timeframes to fetch (e.g., ['1h', '1d', '4h'])
+    
+    Example:
+        PUT /api/v1/admin/symbols/AAPL/timeframes
+        Headers: X-API-Key: xxx
+        Body: {"timeframes": ["1h", "4h", "1d"]}
+    
+    Returns:
+    - Updated symbol configuration with new timeframes
+    """
+    try:
+        symbol_manager = get_symbol_manager()
+        
+        # Verify symbol exists
+        existing = await symbol_manager.get_symbol(symbol)
+        if not existing:
+            raise HTTPException(status_code=404, detail=f"Symbol {symbol} not found")
+        
+        # Update timeframes in database
+        result = await symbol_manager.update_symbol_timeframes(symbol, request.timeframes)
+        
+        if not result:
+            raise HTTPException(status_code=500, detail="Failed to update timeframes")
+        
+        logger.info("Symbol timeframes updated via API", extra={
+            "symbol": symbol,
+            "timeframes": request.timeframes
+        })
+        
+        return result
+    
+    except HTTPException:
+        raise
+    except ValueError as e:
+        logger.warning("Timeframe update validation failed", extra={"symbol": symbol, "error": str(e)})
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Symbol timeframe update error for {symbol}", extra={"error": str(e)})
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -971,6 +1136,507 @@ def generate_performance_recommendations(cache_stats: Dict, perf_stats: Dict, bo
         recommendations.append("System is performing well - no immediate optimizations needed")
     
     return recommendations
+
+
+import asyncio
+import subprocess
+import os
+
+
+async def run_pytest():
+    """Run pytest in a thread pool"""
+    try:
+        cwd = os.getcwd()
+        logger.info(f"Running tests from cwd: {cwd}")
+        
+        def execute_tests():
+            result = subprocess.run(
+                [
+                    "python", "-m", "pytest",
+                    "tests/",
+                    "-v",
+                    "--tb=short",
+                    "-q"
+                ],
+                cwd=cwd,
+                capture_output=True,
+                text=True,
+                timeout=180
+            )
+            return result.stdout, result.stderr, result.returncode
+        
+        # Run in thread pool to not block event loop
+        test_output, test_errors, returncode = await asyncio.to_thread(execute_tests)
+        
+        # Parse the output to get summary
+        lines = test_output.split('\n')
+        summary_line = None
+        for line in lines:
+            if 'passed' in line or 'failed' in line or 'error' in line:
+                if '==' in line:
+                    summary_line = line
+        
+        return {
+            "success": returncode == 0,
+            "return_code": returncode,
+            "summary": summary_line or "Tests completed",
+            "output": test_output[-2000:] if test_output else "",
+            "errors": test_errors[-1000:] if test_errors else "",
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    
+    except subprocess.TimeoutExpired:
+        return {
+            "success": False,
+            "return_code": -1,
+            "summary": "Test execution timed out (3 minutes)",
+            "output": "",
+            "errors": "Tests took too long to complete",
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    
+    except Exception as e:
+        logger.error(f"Test execution error: {e}")
+        return {
+            "success": False,
+            "return_code": -1,
+            "summary": f"Error running tests: {str(e)}",
+            "output": "",
+            "errors": str(e),
+            "timestamp": datetime.utcnow().isoformat()
+        }
+
+
+@app.get("/api/v1/tests/run")
+async def run_tests_get():
+    """Run tests via GET request"""
+    return await run_pytest()
+
+
+@app.post("/api/v1/tests/run")
+async def run_tests_post():
+    """Run tests via POST request"""
+    return await run_pytest()
+
+
+@app.get("/api/v1/news/{symbol}")
+async def get_news(
+    symbol: str,
+    days: int = Query(30, ge=1, le=365),
+    limit: int = Query(50, ge=1, le=500),
+    sentiment_filter: str = Query(None, regex="^(bullish|bearish|neutral)$")
+):
+    """
+    Get recent news for a symbol with optional sentiment filtering.
+    
+    Args:
+        symbol: Stock ticker (e.g., AAPL)
+        days: Look back this many days (default: 30, max: 365)
+        limit: Maximum articles to return (default: 50, max: 500)
+        sentiment_filter: Filter by 'bullish', 'bearish', or 'neutral' (optional)
+    
+    Returns:
+        List of news articles with sentiment scores
+    """
+    try:
+        from src.services.news_service import NewsService
+        
+        news_service = NewsService(db)
+        articles = news_service.get_news_by_symbol(
+            symbol=symbol,
+            days=days,
+            limit=limit,
+            sentiment_filter=sentiment_filter
+        )
+        
+        return {
+            "symbol": symbol,
+            "articles": articles,
+            "count": len(articles),
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    
+    except Exception as e:
+        logger.error(f"Error fetching news for {symbol}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error fetching news: {str(e)}"
+        )
+
+
+@app.get("/api/v1/sentiment/{symbol}")
+async def get_sentiment(
+    symbol: str,
+    days: int = Query(30, ge=1, le=365)
+):
+    """
+    Get aggregated sentiment metrics for a symbol.
+    
+    Args:
+        symbol: Stock ticker (e.g., AAPL)
+        days: Lookback period in days (default: 30, max: 365)
+    
+    Returns:
+        Sentiment aggregate with trend analysis
+    """
+    try:
+        from src.services.news_service import NewsService
+        
+        news_service = NewsService(db)
+        sentiment = news_service.get_sentiment_aggregate(
+            symbol=symbol,
+            days=days
+        )
+        
+        return {
+            **sentiment,
+            "lookback_days": days,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    
+    except Exception as e:
+        logger.error(f"Error fetching sentiment for {symbol}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error fetching sentiment: {str(e)}"
+        )
+
+
+@app.get("/api/v1/sentiment/compare")
+async def compare_sentiment(
+    symbols: str = Query(..., description="Comma-separated symbols (e.g., 'AAPL,MSFT,GOOGL')"),
+    days: int = Query(30, ge=1, le=365)
+):
+    """
+    Compare sentiment across multiple symbols.
+    
+    Args:
+        symbols: Comma-separated ticker symbols
+        days: Lookback period in days
+    
+    Returns:
+        List of sentiment aggregates for comparison
+    """
+    try:
+        from src.services.news_service import NewsService
+        
+        symbol_list = [s.strip().upper() for s in symbols.split(',')]
+        news_service = NewsService(db)
+        
+        results = []
+        for symbol in symbol_list:
+            sentiment = news_service.get_sentiment_aggregate(symbol, days)
+            results.append(sentiment)
+        
+        return {
+            "symbols": symbol_list,
+            "sentiments": results,
+            "lookback_days": days,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    
+    except Exception as e:
+        logger.error(f"Error comparing sentiment: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error comparing sentiment: {str(e)}"
+        )
+
+
+# ===================== PHASE 3: EARNINGS & IV ENDPOINTS =====================
+
+@app.get("/api/v1/earnings/{symbol}")
+async def get_earnings(
+    symbol: str,
+    days: int = Query(365, ge=1, le=1825, description="Lookback days"),
+    limit: int = Query(20, ge=1, le=100, description="Max records")
+):
+    """
+    Get historical earnings records for a symbol with surprises.
+    
+    Args:
+        symbol: Stock ticker (e.g., AAPL)
+        days: Look back period (1-1825 days, default 365)
+        limit: Max records to return (1-100)
+    
+    Returns:
+        List of earnings with estimated vs actual, surprises
+    """
+    try:
+        from src.services.earnings_service import EarningsService
+        
+        earnings_service = EarningsService(db)
+        earnings = await earnings_service.get_earnings_by_symbol(
+            symbol.upper(), days_back=days
+        )
+        
+        return {
+            "symbol": symbol.upper(),
+            "earnings": earnings[:limit],
+            "count": len(earnings[:limit]),
+            "lookback_days": days,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    
+    except Exception as e:
+        logger.error(f"Error fetching earnings: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error fetching earnings: {str(e)}"
+        )
+
+
+@app.get("/api/v1/earnings/{symbol}/summary")
+async def get_earnings_summary(
+    symbol: str
+):
+    """
+    Get aggregated earnings statistics.
+    
+    Returns:
+        Summary of beat rates, average surprises, etc.
+    """
+    try:
+        from src.services.earnings_service import EarningsService
+        
+        earnings_service = EarningsService(db)
+        summary = await earnings_service.get_earnings_summary(symbol.upper())
+        surprises = await earnings_service.get_earnings_surprises(
+            symbol.upper()
+        )
+        
+        return {
+            "symbol": symbol.upper(),
+            "summary": summary,
+            "surprises": surprises,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    
+    except Exception as e:
+        logger.error(f"Error fetching earnings summary: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error fetching earnings summary: {str(e)}"
+        )
+
+
+@app.get("/api/v1/earnings/upcoming")
+async def get_upcoming_earnings(
+    symbols: str = Query(None, description="Comma-separated tickers (optional)"),
+    days: int = Query(30, ge=1, le=90, description="Days ahead")
+):
+    """
+    Get upcoming earnings announcements.
+    
+    Args:
+        symbols: Optional comma-separated tickers (if None, returns all)
+        days: Days ahead to look (1-90)
+    
+    Returns:
+        List of upcoming earnings with times and estimates
+    """
+    try:
+        from src.services.earnings_service import EarningsService
+        
+        earnings_service = EarningsService(db)
+        symbol_list = (
+            [s.strip().upper() for s in symbols.split(",")]
+            if symbols else None
+        )
+        
+        upcoming = await earnings_service.get_upcoming_earnings(
+            days_ahead=days, symbols=symbol_list
+        )
+        
+        return {
+            "upcoming_earnings": upcoming,
+            "count": len(upcoming),
+            "lookback_days": days,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    
+    except Exception as e:
+        logger.error(f"Error fetching upcoming earnings: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error fetching upcoming earnings: {str(e)}"
+        )
+
+
+@app.get("/api/v1/options/iv/{symbol}")
+async def get_options_iv(
+    symbol: str,
+    expiration: str = Query(None, description="Expiration date (YYYY-MM-DD)"),
+    days: int = Query(30, ge=1, le=365, description="Lookback days")
+):
+    """
+    Get options implied volatility data for a symbol.
+    
+    Args:
+        symbol: Stock ticker
+        expiration: Specific expiration (optional, latest if not provided)
+        days: Lookback period
+    
+    Returns:
+        Options chain with IV, Greeks, and pricing
+    """
+    try:
+        from src.services.options_iv_service import OptionsIVService
+        
+        options_service = OptionsIVService(db)
+        
+        if expiration:
+            chain = await options_service.get_chain_for_symbol(
+                symbol.upper(), expiration
+            )
+        else:
+            # Get latest expiration
+            query = """
+            SELECT DISTINCT expiration_date 
+            FROM options_iv 
+            WHERE symbol = $1 
+            ORDER BY expiration_date ASC 
+            LIMIT 1
+            """
+            result = await db.fetchrow(query, symbol.upper())
+            if result:
+                chain = await options_service.get_chain_for_symbol(
+                    symbol.upper(), result["expiration_date"].isoformat()
+                )
+            else:
+                chain = []
+        
+        return {
+            "symbol": symbol.upper(),
+            "expiration": expiration,
+            "chain": chain,
+            "count": len(chain),
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    
+    except Exception as e:
+        logger.error(f"Error fetching options IV: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error fetching options IV: {str(e)}"
+        )
+
+
+@app.get("/api/v1/volatility/regime/{symbol}")
+async def get_volatility_regime(
+    symbol: str,
+    date: str = Query(None, description="Quote date (YYYY-MM-DD), uses latest if not provided")
+):
+    """
+    Get volatility regime classification for a symbol.
+    
+    Args:
+        symbol: Stock ticker
+        date: Specific date (optional)
+    
+    Returns:
+        Regime ('very_low', 'low', 'normal', 'high', 'very_high'), IV metrics, HV comparison
+    """
+    try:
+        from src.services.options_iv_service import OptionsIVService
+        
+        options_service = OptionsIVService(db)
+        regime = await options_service.get_volatility_regime(
+            symbol.upper(), date
+        )
+        
+        if not regime:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No volatility regime data for {symbol}"
+            )
+        
+        return {
+            "symbol": symbol.upper(),
+            "regime": regime,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching volatility regime: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error fetching volatility regime: {str(e)}"
+        )
+
+
+@app.get("/api/v1/features/composite/{symbol}")
+async def get_composite_features(
+    symbol: str
+):
+    """
+    Get composite feature vector for a symbol (ML features).
+    
+    Combines:
+    - Dividend metrics
+    - Earnings beat rates and surprises
+    - News sentiment
+    - Volatility regime
+    - IV metrics
+    
+    Returns:
+        Feature vector suitable for ML models
+    """
+    try:
+        from src.services.feature_service import FeatureService
+        
+        feature_service = FeatureService(db)
+        features = await feature_service.get_composite_features(symbol.upper())
+        
+        if not features:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No feature data available for {symbol}"
+            )
+        
+        return {
+            "symbol": symbol.upper(),
+            "features": features,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching composite features: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error fetching composite features: {str(e)}"
+        )
+
+
+@app.get("/api/v1/features/importance")
+async def get_feature_importance():
+    """
+    Get feature importance weights for ML models.
+    
+    Returns:
+        Dict of feature names to importance scores
+    """
+    try:
+        from src.services.feature_service import FeatureService
+        
+        feature_service = FeatureService(db)
+        importance = await feature_service.calculate_feature_importance([])
+        
+        return {
+            "feature_importance": importance,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    
+    except Exception as e:
+        logger.error(f"Error fetching feature importance: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error fetching feature importance: {str(e)}"
+        )
 
 
 @app.on_event("startup")

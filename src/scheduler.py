@@ -93,9 +93,9 @@ class AutoBackfillScheduler:
         logger.info(f"Scheduler started. Backfill scheduled for {self.schedule_hour:02d}:{self.schedule_minute:02d} UTC daily")
         
         # Log symbols by asset class
-        stocks = [s for s, ac in self.symbols if ac == "stock"]
-        crypto = [s for s, ac in self.symbols if ac == "crypto"]
-        etfs = [s for s, ac in self.symbols if ac == "etf"]
+        stocks = [s for s, ac, _ in self.symbols if ac == "stock"]
+        crypto = [s for s, ac, _ in self.symbols if ac == "crypto"]
+        etfs = [s for s, ac, _ in self.symbols if ac == "etf"]
         
         if stocks:
             logger.info(f"Stocks ({len(stocks)}): {', '.join(stocks[:5])}{'...' if len(stocks) > 5 else ''}")
@@ -112,22 +112,23 @@ class AutoBackfillScheduler:
     
     async def _load_symbols_from_db(self) -> List[tuple]:
         """
-        Load active symbols from tracked_symbols table with asset class.
+        Load active symbols from tracked_symbols table with asset class and timeframes.
         
         Returns:
-            List of tuples (symbol, asset_class) for active symbols
+            List of tuples (symbol, asset_class, timeframes) for active symbols
         """
         try:
             conn = await asyncpg.connect(self.database_url)
             
             rows = await conn.fetch(
-                "SELECT symbol, asset_class FROM tracked_symbols WHERE active = TRUE ORDER BY symbol ASC"
+                "SELECT symbol, asset_class, timeframes FROM tracked_symbols WHERE active = TRUE ORDER BY symbol ASC"
             )
             
             await conn.close()
             
-            # Return list of (symbol, asset_class) tuples
-            return [(row['symbol'], row['asset_class']) for row in rows]
+            # Return list of (symbol, asset_class, timeframes) tuples
+            # timeframes is a PostgreSQL array, convert to list
+            return [(row['symbol'], row['asset_class'], row['timeframes'] or ['1d']) for row in rows]
         
         except Exception as e:
             logger.error(f"Failed to load symbols from database: {e}")
@@ -205,15 +206,18 @@ class AutoBackfillScheduler:
             "symbols_processed": []
         }
         
-        for symbol, asset_class in self.symbols:
+        for symbol, asset_class, timeframes in self.symbols:
             try:
                 # Update status: in_progress
                 await self._update_symbol_backfill_status(symbol, "in_progress", None)
                 
-                # Run backfill
-                records = await self._backfill_symbol(symbol, asset_class)
+                # Run backfill for each configured timeframe
+                total_for_symbol = 0
+                for timeframe in timeframes:
+                    records = await self._backfill_symbol(symbol, asset_class, timeframe)
+                    total_for_symbol += records
                 
-                if records > 0:
+                if total_for_symbol > 0:
                     results["success"] += 1
                     # Update status: completed
                     await self._update_symbol_backfill_status(symbol, "completed", None)
@@ -221,15 +225,27 @@ class AutoBackfillScheduler:
                     logger.warning(f"No records inserted for {symbol}")
                     await self._update_symbol_backfill_status(symbol, "completed", "No records inserted")
                 
-                results["total_records"] += records
-                results["symbols_processed"].append({"symbol": symbol, "asset_class": asset_class, "records": records, "status": "completed"})
+                results["total_records"] += total_for_symbol
+                results["symbols_processed"].append({
+                    "symbol": symbol,
+                    "asset_class": asset_class,
+                    "timeframes": timeframes,
+                    "records": total_for_symbol,
+                    "status": "completed"
+                })
                 
             except Exception as e:
                 logger.error(f"Backfill failed for {symbol}: {e}")
                 results["failed"] += 1
                 # Update status: failed with error message
                 await self._update_symbol_backfill_status(symbol, "failed", str(e))
-                results["symbols_processed"].append({"symbol": symbol, "asset_class": asset_class, "status": "failed", "error": str(e)})
+                results["symbols_processed"].append({
+                    "symbol": symbol,
+                    "asset_class": asset_class,
+                    "timeframes": timeframes,
+                    "status": "failed",
+                    "error": str(e)
+                })
         
         _last_backfill_result = results
         
@@ -238,32 +254,34 @@ class AutoBackfillScheduler:
             f"{results['failed']} failed, {results['total_records']} records imported"
         )
     
-    async def _backfill_symbol(self, symbol: str, asset_class: str = "stock") -> int:
+    async def _backfill_symbol(self, symbol: str, asset_class: str = "stock", timeframe: str = "1d") -> int:
         """
-        Backfill data for a single symbol with retries.
+        Backfill data for a single symbol and timeframe with retries.
         
-        Fetches last N trading days and validates.
-        Handles both stocks and crypto.
+        Fetches last N days and validates.
+        Handles both stocks and crypto across multiple timeframes.
         
         Args:
             symbol: Stock ticker or crypto pair (e.g., AAPL, BTCUSD)
             asset_class: Type of asset (stock, crypto, etf)
+            timeframe: Timeframe code (5m, 15m, 30m, 1h, 4h, 1d, 1w)
         
         Returns:
             Number of records inserted
         """
-        # Default: fetch last 30 days (covers 20-22 trading days)
+        # Default: fetch last 30 days (covers 20-22 trading days or ~720 hours)
         end_date = datetime.utcnow().date()
         start_date = end_date - timedelta(days=30)
         
-        logger.info(f"Backfilling {symbol} ({asset_class}): {start_date} to {end_date}")
+        logger.info(f"Backfilling {symbol} ({asset_class}) {timeframe}: {start_date} to {end_date}")
         
         # Use retry logic
-        return await self._fetch_and_insert_with_retry(symbol, start_date, end_date, asset_class)
+        return await self._fetch_and_insert_with_retry(symbol, start_date, end_date, asset_class, timeframe)
     
-    async def _fetch_and_insert_with_retry(self, symbol: str, start_date, end_date, asset_class: str = "stock") -> int:
+    async def _fetch_and_insert_with_retry(self, symbol: str, start_date, end_date, asset_class: str = "stock", timeframe: str = "1d") -> int:
         """
         Fetch from Polygon and insert with exponential backoff retry logic.
+        Supports multiple timeframes.
         """
         max_retries = 3
         retry_count = 0
@@ -271,7 +289,7 @@ class AutoBackfillScheduler:
         
         while retry_count < max_retries:
             try:
-                return await self._fetch_and_insert(symbol, start_date, end_date, asset_class)
+                return await self._fetch_and_insert(symbol, start_date, end_date, asset_class, timeframe)
             
             except Exception as e:
                 last_error = e
@@ -281,12 +299,12 @@ class AutoBackfillScheduler:
                     # Exponential backoff: 2s, 4s, 8s
                     wait_time = 2 ** retry_count
                     logger.warning(
-                        f"Backfill failed for {symbol} (attempt {retry_count}/{max_retries}): {e}. "
+                        f"Backfill failed for {symbol} {timeframe} (attempt {retry_count}/{max_retries}): {e}. "
                         f"Retrying in {wait_time}s..."
                     )
                     await asyncio.sleep(wait_time)
                 else:
-                    logger.error(f"Backfill failed for {symbol} after {max_retries} attempts: {e}")
+                    logger.error(f"Backfill failed for {symbol} {timeframe} after {max_retries} attempts: {e}")
         
         # All retries exhausted
         self.db_service.log_backfill(
@@ -295,27 +313,29 @@ class AutoBackfillScheduler:
             end_date.strftime('%Y-%m-%d'),
             0,
             False,
-            f"Failed after {max_retries} retries: {str(last_error)}"
+            f"Failed after {max_retries} retries ({timeframe}): {str(last_error)}"
         )
         return 0
     
-    async def _fetch_and_insert(self, symbol: str, start_date, end_date, asset_class: str = "stock") -> int:
+    async def _fetch_and_insert(self, symbol: str, start_date, end_date, asset_class: str = "stock", timeframe: str = "1d") -> int:
         """
         Fetch from Polygon, validate, and insert into database.
-        Handles both stocks and crypto.
+        Handles both stocks and crypto across multiple timeframes.
         """
         try:
-            # Fetch from Polygon based on asset class
+            # Fetch from Polygon based on asset class and timeframe
             if asset_class == "crypto":
-                candles = await self.polygon_client.fetch_crypto_daily_range(
+                candles = await self.polygon_client.fetch_range(
                     symbol,
+                    timeframe,
                     start_date.strftime('%Y-%m-%d'),
                     end_date.strftime('%Y-%m-%d')
                 )
             else:
                 # Handle stocks and ETFs with same endpoint
-                candles = await self.polygon_client.fetch_daily_range(
+                candles = await self.polygon_client.fetch_range(
                     symbol,
+                    timeframe,
                     start_date.strftime('%Y-%m-%d'),
                     end_date.strftime('%Y-%m-%d')
                 )
@@ -348,6 +368,9 @@ class AutoBackfillScheduler:
                     median_volume=median_vol if median_vol > 0 else None
                 )
                 
+                # Add timeframe to metadata
+                meta['timeframe'] = timeframe
+                
                 # Only insert validated candles
                 if meta['validated']:
                     metadata_list.append((candle, meta))
@@ -373,8 +396,8 @@ class AutoBackfillScheduler:
             candles_to_insert = [c for c, _ in metadata_list]
             metadata_to_insert = [m for _, m in metadata_list]
             
-            # Insert into database
-            inserted = self.db_service.insert_ohlcv_batch(symbol, candles_to_insert, metadata_to_insert)
+            # Insert into database with timeframe
+            inserted = self.db_service.insert_ohlcv_batch(symbol, candles_to_insert, metadata_to_insert, timeframe)
             
             # Log backfill result
             self.db_service.log_backfill(
@@ -383,7 +406,7 @@ class AutoBackfillScheduler:
                 end_date.strftime('%Y-%m-%d'),
                 inserted,
                 True,
-                f"Inserted {inserted}/{len(candles)} candles ({rejected_count} rejected by validation)"
+                f"Inserted {inserted}/{len(candles)} candles ({rejected_count} rejected) for {timeframe}"
             )
             
             logger.info(

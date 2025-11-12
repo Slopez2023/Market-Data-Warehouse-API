@@ -144,10 +144,11 @@ class TestGetHistoricalData:
     
     def test_query_valid_date_range(self, db_service, mock_session):
         """Test querying data for valid date range"""
-        # Mock query result
+        # Mock query result - includes timeframe in correct position
         mock_row = (
             datetime(2024, 11, 7),
             'AAPL',
+            '1d',  # timeframe
             150.0, 152.0, 149.0, 151.0, 1000000,
             'polygon',
             True,
@@ -157,23 +158,40 @@ class TestGetHistoricalData:
             datetime(2024, 11, 7, 10, 0)
         )
         
-        mock_result = MagicMock()
-        mock_result.fetchall.return_value = [mock_row]
-        mock_session.execute.return_value = mock_result
+        # Mock the raw connection/cursor path
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall.return_value = [mock_row]
+        
+        mock_connection = MagicMock()
+        mock_connection.cursor.return_value = mock_cursor
+        
+        mock_db_connection = MagicMock()
+        mock_db_connection.connection = mock_connection
+        
+        mock_session.connection.return_value = mock_db_connection
         
         data = db_service.get_historical_data('AAPL', '2024-11-07', '2024-11-07')
         
         assert len(data) == 1
         assert data[0]['symbol'] == 'AAPL'
+        assert data[0]['timeframe'] == '1d'
         assert data[0]['close'] == 151.0
         assert data[0]['validated'] is True
         assert data[0]['quality_score'] == 0.95
     
     def test_query_empty_result(self, db_service, mock_session):
         """Test query with no results"""
-        mock_result = MagicMock()
-        mock_result.fetchall.return_value = []
-        mock_session.execute.return_value = mock_result
+        # Mock the raw connection/cursor path
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall.return_value = []
+        
+        mock_connection = MagicMock()
+        mock_connection.cursor.return_value = mock_cursor
+        
+        mock_db_connection = MagicMock()
+        mock_db_connection.connection = mock_connection
+        
+        mock_session.connection.return_value = mock_db_connection
         
         data = db_service.get_historical_data('NONEXISTENT', '2024-11-07', '2024-11-07')
         
@@ -181,9 +199,17 @@ class TestGetHistoricalData:
     
     def test_query_with_validation_filter(self, db_service, mock_session):
         """Test query with validated_only filter"""
-        mock_result = MagicMock()
-        mock_result.fetchall.return_value = []
-        mock_session.execute.return_value = mock_result
+        # Mock the raw connection/cursor path
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall.return_value = []
+        
+        mock_connection = MagicMock()
+        mock_connection.cursor.return_value = mock_cursor
+        
+        mock_db_connection = MagicMock()
+        mock_db_connection.connection = mock_connection
+        
+        mock_session.connection.return_value = mock_db_connection
         
         data = db_service.get_historical_data(
             'AAPL', 
@@ -192,15 +218,25 @@ class TestGetHistoricalData:
             validated_only=True
         )
         
-        # Verify query was called with correct filters
-        call_args = mock_session.execute.call_args
-        assert 'validated = TRUE' in call_args[0][0].text
+        # Verify query was executed with correct parameters
+        call_args = mock_cursor.execute.call_args
+        assert call_args is not None
+        # Query string should contain validated = TRUE
+        assert 'validated = TRUE' in call_args[0][0]
     
     def test_query_with_quality_threshold(self, db_service, mock_session):
         """Test query with minimum quality filter"""
-        mock_result = MagicMock()
-        mock_result.fetchall.return_value = []
-        mock_session.execute.return_value = mock_result
+        # Mock the raw connection/cursor path
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall.return_value = []
+        
+        mock_connection = MagicMock()
+        mock_connection.cursor.return_value = mock_cursor
+        
+        mock_db_connection = MagicMock()
+        mock_db_connection.connection = mock_connection
+        
+        mock_session.connection.return_value = mock_db_connection
         
         data = db_service.get_historical_data(
             'AAPL',
@@ -210,8 +246,9 @@ class TestGetHistoricalData:
         )
         
         # Verify quality filter in query
-        call_args = mock_session.execute.call_args
-        assert 'quality_score' in call_args[0][0].text
+        call_args = mock_cursor.execute.call_args
+        assert call_args is not None
+        assert 'quality_score >= 0.85' in call_args[0][0]
     
     def test_query_error_handling(self, db_service, mock_session):
         """Test error handling in data retrieval"""

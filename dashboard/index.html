@@ -11,8 +11,8 @@
         <!-- Header -->
         <header class="header">
             <div class="header-content">
-                <div>
-                    <h1>📊 Market Data Dashboard</h1>
+                <div class="header-title">
+                    <h1>Market Data Dashboard</h1>
                     <p class="subtitle">Real-time monitoring & system health</p>
                 </div>
                 <div class="header-right">
@@ -70,12 +70,43 @@
             </div>
         </section>
 
-        <!-- Data Quality Heatmap -->
+        <!-- Data Quality - Symbol Table -->
         <section class="card">
-            <h2>Symbol Quality</h2>
-            <div id="symbol-grid" class="symbol-grid">
-                <!-- Populated dynamically -->
+            <div class="symbol-section-header">
+                <h2>Symbol Quality & Status</h2>
+                <div class="symbol-controls">
+                    <input 
+                        type="text" 
+                        id="symbol-search" 
+                        class="symbol-search" 
+                        placeholder="Search symbols..."
+                    >
+                    <select id="status-filter" class="status-filter">
+                        <option value="">All Statuses</option>
+                        <option value="healthy">✓ Healthy</option>
+                        <option value="warning">⚠ Warning</option>
+                        <option value="stale">✗ Stale</option>
+                    </select>
+                </div>
             </div>
+            
+            <table id="symbol-table" class="symbol-table">
+                <thead>
+                    <tr>
+                        <th onclick="sortTable('symbol')">Symbol</th>
+                        <th onclick="sortTable('records')">Records</th>
+                        <th onclick="sortTable('validation_rate')">Validation %</th>
+                        <th onclick="sortTable('latest_data')">Last Update</th>
+                        <th onclick="sortTable('data_age_hours')">Data Age</th>
+                        <th onclick="sortTable('status')">Status</th>
+                    </tr>
+                </thead>
+                <tbody id="symbol-tbody">
+                    <tr><td colspan="6" style="text-align: center; color: var(--text-secondary);">Loading...</td></tr>
+                </tbody>
+            </table>
+            
+            <div id="symbol-count" class="symbol-count"></div>
         </section>
 
         <!-- System Resources -->
@@ -97,13 +128,27 @@
             </div>
         </section>
 
+        <!-- Test Suite Section -->
+        <section class="card">
+            <h2>Test Suite</h2>
+            <div class="test-controls">
+                <button onclick="runAllTests()" class="btn btn-primary">Run Tests</button>
+            </div>
+            
+            <div id="test-container" class="test-container" style="display: none;">
+                <div id="test-status" class="test-status"></div>
+                <div id="test-summary" class="test-summary"></div>
+                <div id="test-output" class="test-output"></div>
+            </div>
+        </section>
+
         <!-- Quick Actions -->
         <section class="card">
             <h2>Quick Actions</h2>
             <div class="actions">
-                <button onclick="refreshDashboard()" class="btn btn-primary">🔄 Refresh Now</button>
-                <button onclick="viewDocs()" class="btn btn-secondary">📖 API Docs</button>
-                <button onclick="testHealth()" class="btn btn-secondary">🏥 Health Check</button>
+                <button onclick="refreshDashboard()" class="btn btn-primary">Refresh Now</button>
+                <button onclick="viewDocs()" class="btn btn-secondary">API Documentation</button>
+                <button onclick="testHealth()" class="btn btn-secondary">Health Check</button>
             </div>
         </section>
 
@@ -113,6 +158,6 @@
         </footer>
     </div>
 
-    <script src="script.js?v=6"></script>
+    <script src="script.js?v=7"></script>
 </body>
 </html>

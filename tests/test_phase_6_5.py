@@ -98,7 +98,7 @@ async def test_add_crypto_symbol_to_manager():
                 'asset_class': 'crypto',
                 'active': True,
                 'date_added': datetime.now(),
-                'backfill_status': 'pending'
+                'backfill_status': 'pending', 'timeframes': ['1h', '1d']
             }  # Insert result
         ]
         
@@ -142,7 +142,7 @@ async def test_crypto_symbol_case_insensitive():
                 'asset_class': 'crypto',
                 'active': True,
                 'date_added': datetime.now(),
-                'backfill_status': 'pending'
+                'backfill_status': 'pending', 'timeframes': ['1h', '1d']
             }
         ]
         
@@ -167,7 +167,7 @@ async def test_get_crypto_symbol_with_asset_class():
             'active': True,
             'date_added': datetime.now(),
             'last_backfill': None,
-            'backfill_status': 'pending'
+            'backfill_status': 'pending', 'timeframes': ['1h', '1d']
         }
         
         result = await manager.get_symbol('ETHGBP')
@@ -228,18 +228,18 @@ async def test_load_symbols_preserves_asset_class():
         mock_connect.return_value = mock_conn
         
         mock_conn.fetch.return_value = [
-            {'symbol': 'AAPL', 'asset_class': 'stock'},
-            {'symbol': 'BTCUSD', 'asset_class': 'crypto'},
-            {'symbol': 'ETH', 'asset_class': 'crypto'},
-            {'symbol': 'SPY', 'asset_class': 'etf'},
+            {'symbol': 'AAPL', 'asset_class': 'stock', 'timeframes': ['1h', '1d']},
+            {'symbol': 'BTCUSD', 'asset_class': 'crypto', 'timeframes': ['1h', '1d']},
+            {'symbol': 'ETH', 'asset_class': 'crypto', 'timeframes': ['1h', '1d']},
+            {'symbol': 'SPY', 'asset_class': 'etf', 'timeframes': ['1h', '1d']},
         ]
         
         symbols = await scheduler._load_symbols_from_db()
         
         assert len(symbols) == 4
         
-        # Verify asset classes are preserved
-        symbol_dict = {s: ac for s, ac in symbols}
+        # Verify asset classes are preserved (symbols are now tuples with timeframes)
+        symbol_dict = {s: ac for s, ac, _ in symbols}
         assert symbol_dict['AAPL'] == 'stock'
         assert symbol_dict['BTCUSD'] == 'crypto'
         assert symbol_dict['ETH'] == 'crypto'
@@ -252,14 +252,14 @@ async def test_load_symbols_preserves_asset_class():
 
 @pytest.mark.asyncio
 async def test_fetch_and_insert_routes_to_crypto_endpoint():
-    """Test that crypto symbols use fetch_crypto_daily_range"""
+    """Test that crypto symbols use fetch_range"""
     scheduler = AutoBackfillScheduler(
         polygon_api_key="test_key",
         database_url="postgresql://test"
     )
     
-    with patch.object(scheduler.polygon_client, 'fetch_crypto_daily_range', new_callable=AsyncMock) as mock_crypto:
-        mock_crypto.return_value = [
+    with patch.object(scheduler.polygon_client, 'fetch_range', new_callable=AsyncMock) as mock_fetch:
+        mock_fetch.return_value = [
             {'t': 1609459200000, 'o': 29000, 'h': 30000, 'l': 28000, 'c': 29500, 'v': 100}
         ]
         
@@ -272,11 +272,12 @@ async def test_fetch_and_insert_routes_to_crypto_endpoint():
                             'BTCUSD',
                             datetime(2021, 1, 1),
                             datetime(2021, 1, 31),
-                            'crypto'
+                            'crypto',
+                            '1d'
                         )
                         
-                        # Should call crypto endpoint
-                        mock_crypto.assert_called_once()
+                        # Should call fetch_range for crypto
+                        mock_fetch.assert_called_once()
                         assert result >= 0
 
 
@@ -286,11 +287,11 @@ async def test_backfill_job_processes_crypto_symbols():
     scheduler = AutoBackfillScheduler(
         polygon_api_key="test_key",
         database_url="postgresql://test",
-        symbols=[('BTCUSD', 'crypto')]
+        symbols=[('BTCUSD', 'crypto', ['1d'])]
     )
     
     with patch.object(scheduler, '_load_symbols_from_db', new_callable=AsyncMock) as mock_load:
-        mock_load.return_value = [('BTCUSD', 'crypto')]
+        mock_load.return_value = [('BTCUSD', 'crypto', ['1d'])]
         
         with patch.object(scheduler, '_backfill_symbol', new_callable=AsyncMock) as mock_backfill:
             mock_backfill.return_value = 5
@@ -298,8 +299,8 @@ async def test_backfill_job_processes_crypto_symbols():
             with patch.object(scheduler, '_update_symbol_backfill_status', new_callable=AsyncMock):
                 await scheduler._backfill_job()
                 
-                # Should call backfill with crypto asset class
-                mock_backfill.assert_called_once_with('BTCUSD', 'crypto')
+                # Should call backfill with crypto asset class and timeframe
+                mock_backfill.assert_called_once_with('BTCUSD', 'crypto', '1d')
 
 
 @pytest.mark.asyncio
@@ -311,32 +312,28 @@ async def test_mixed_asset_class_backfill_sequence():
     )
     
     scheduler.symbols = [
-        ('AAPL', 'stock'),
-        ('BTCUSD', 'crypto'),
-        ('MSFT', 'stock'),
-        ('ETHGBP', 'crypto'),
+        ('AAPL', 'stock', ['1d']),
+        ('BTCUSD', 'crypto', ['1d']),
+        ('MSFT', 'stock', ['1d']),
+        ('ETHGBP', 'crypto', ['1d']),
     ]
     
     with patch.object(scheduler, '_load_symbols_from_db', new_callable=AsyncMock) as mock_load:
         mock_load.return_value = scheduler.symbols
         
-        with patch.object(scheduler.polygon_client, 'fetch_daily_range', new_callable=AsyncMock) as mock_stock:
-            with patch.object(scheduler.polygon_client, 'fetch_crypto_daily_range', new_callable=AsyncMock) as mock_crypto:
-                mock_stock.return_value = [{'t': 1609459200000, 'o': 130, 'h': 131, 'l': 129, 'c': 130.5, 'v': 1000000}]
-                mock_crypto.return_value = [{'t': 1609459200000, 'o': 29000, 'h': 30000, 'l': 28000, 'c': 29500, 'v': 100}]
-                
-                with patch.object(scheduler, 'db_service'):
-                    with patch.object(scheduler.validation_service, 'validate_candle') as mock_validate:
-                        mock_validate.return_value = (True, {'validated': True})
-                        with patch.object(scheduler.db_service, 'insert_ohlcv_batch', return_value=1):
-                            with patch.object(scheduler.db_service, 'log_backfill'):
-                                with patch.object(scheduler, '_update_symbol_backfill_status', new_callable=AsyncMock):
-                                    await scheduler._backfill_job()
-                                    
-                                    # Stock fetch should be called twice
-                                    assert mock_stock.call_count == 2
-                                    # Crypto fetch should be called twice
-                                    assert mock_crypto.call_count == 2
+        with patch.object(scheduler.polygon_client, 'fetch_range', new_callable=AsyncMock) as mock_fetch:
+            mock_fetch.return_value = [{'t': 1609459200000, 'o': 130, 'h': 131, 'l': 129, 'c': 130.5, 'v': 1000000}]
+            
+            with patch.object(scheduler, 'db_service'):
+                with patch.object(scheduler.validation_service, 'validate_candle') as mock_validate:
+                    mock_validate.return_value = (True, {'validated': True})
+                    with patch.object(scheduler.db_service, 'insert_ohlcv_batch', return_value=1):
+                        with patch.object(scheduler.db_service, 'log_backfill'):
+                            with patch.object(scheduler, '_update_symbol_backfill_status', new_callable=AsyncMock):
+                                await scheduler._backfill_job()
+                                
+                                # fetch_range should be called 4 times (once per symbol with 1 timeframe)
+                                assert mock_fetch.call_count == 4
 
 
 # ==============================================================================
@@ -420,7 +417,7 @@ async def test_crypto_symbol_not_found_handling():
         database_url="postgresql://test"
     )
     
-    with patch.object(scheduler.polygon_client, 'fetch_crypto_daily_range', new_callable=AsyncMock) as mock_fetch:
+    with patch.object(scheduler.polygon_client, 'fetch_range', new_callable=AsyncMock) as mock_fetch:
         mock_fetch.return_value = []  # No data
         
         with patch.object(scheduler.db_service, 'log_backfill') as mock_log:
@@ -428,7 +425,8 @@ async def test_crypto_symbol_not_found_handling():
                 'FAKECRYPTO',
                 datetime(2021, 1, 1),
                 datetime(2021, 1, 31),
-                'crypto'
+                'crypto',
+                '1d'
             )
             
             assert result == 0
@@ -442,7 +440,7 @@ async def test_crypto_backfill_handles_no_data():
         database_url="postgresql://test"
     )
     
-    with patch.object(scheduler.polygon_client, 'fetch_crypto_daily_range', new_callable=AsyncMock) as mock_fetch:
+    with patch.object(scheduler.polygon_client, 'fetch_range', new_callable=AsyncMock) as mock_fetch:
         mock_fetch.return_value = []  # No data
         
         with patch.object(scheduler.db_service, 'log_backfill') as mock_log:
@@ -450,7 +448,8 @@ async def test_crypto_backfill_handles_no_data():
                 'FAKECRYPTO',
                 datetime(2021, 1, 1),
                 datetime(2021, 1, 31),
-                'crypto'
+                'crypto',
+                '1d'
             )
             
             assert result == 0
@@ -522,7 +521,7 @@ async def test_crypto_end_to_end_flow():
                 'asset_class': 'crypto',
                 'active': True,
                 'date_added': datetime.now(),
-                'backfill_status': 'pending'
+                'backfill_status': 'pending', 'timeframes': ['1h', '1d']
             }
         ]
         
@@ -535,7 +534,7 @@ async def test_crypto_end_to_end_flow():
         mock_connect.return_value = mock_conn
         
         mock_conn.fetch.return_value = [
-            {'symbol': 'BTCUSD', 'asset_class': 'crypto'}
+            {'symbol': 'BTCUSD', 'asset_class': 'crypto', 'timeframes': ['1d']}
         ]
         
         symbols = await scheduler._load_symbols_from_db()
@@ -543,7 +542,7 @@ async def test_crypto_end_to_end_flow():
         assert symbols[0][1] == 'crypto'
     
     # Step 3: Backfill crypto symbol
-    with patch.object(scheduler.polygon_client, 'fetch_crypto_daily_range', new_callable=AsyncMock) as mock_fetch:
+    with patch.object(scheduler.polygon_client, 'fetch_range', new_callable=AsyncMock) as mock_fetch:
         mock_fetch.return_value = [
             {'t': 1609459200000, 'o': 29000, 'h': 30000, 'l': 28000, 'c': 29500, 'v': 100}
         ]
@@ -557,7 +556,8 @@ async def test_crypto_end_to_end_flow():
                         'BTCUSD',
                         datetime(2021, 1, 1),
                         datetime(2021, 1, 31),
-                        'crypto'
+                        'crypto',
+                        '1d'
                     )
                     
                     assert result >= 0

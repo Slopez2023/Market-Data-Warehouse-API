@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
 Manual backfill script for historical data.
-Defaults to ~5 years for a set of large-cap symbols, but can be
-parameterized via CLI flags to fetch specific symbols and date ranges.
+Backfills all active symbols from tracked_symbols table.
+Can be parameterized via CLI flags to filter symbols, set date ranges, and choose timeframe.
 """
 
 import asyncio
@@ -11,6 +11,7 @@ import os
 from datetime import datetime, timedelta
 import argparse
 from dotenv import load_dotenv
+import asyncpg
 
 from src.clients.polygon_client import PolygonClient
 from src.services.validation_service import ValidationService
@@ -26,14 +27,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Default symbols to backfill
-DEFAULT_SYMBOLS = [
-    "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA",
-    "TSLA", "META", "NFLX", "AMD", "INTC",
-    "PYPL", "SQ", "CRM", "ADBE", "MU"
-]
-
-# Backfill date range (5 years of data)
+# Default backfill date range (5 years of data)
 END_DATE = datetime.utcnow().date()
 START_DATE = END_DATE - timedelta(days=365*5)
 
@@ -44,20 +38,31 @@ async def backfill_symbol(
     validation_service: ValidationService,
     db_service: DatabaseService,
     start_date: datetime.date,
-    end_date: datetime.date
+    end_date: datetime.date,
+    timeframe: str = '1d'
 ) -> tuple[int, int]:
     """
     Backfill data for a single symbol.
+    
+    Args:
+        symbol: Stock/crypto symbol
+        polygon_client: Polygon API client
+        validation_service: Validation service
+        db_service: Database service
+        start_date: Start date for backfill
+        end_date: End date for backfill
+        timeframe: Timeframe (default '1d'). Supported: 5m, 15m, 30m, 1h, 4h, 1d, 1w
     
     Returns:
         (inserted_count, failed_count)
     """
     try:
-        logger.info(f"Backfilling {symbol}: {start_date} to {end_date}")
+        logger.info(f"Backfilling {symbol} ({timeframe}): {start_date} to {end_date}")
         
         # Fetch from Polygon
-        candles = await polygon_client.fetch_daily_range(
+        candles = await polygon_client.fetch_range(
             symbol,
+            timeframe,
             start_date.strftime('%Y-%m-%d'),
             end_date.strftime('%Y-%m-%d')
         )
@@ -124,12 +129,12 @@ async def backfill_symbol(
 
 
 def _parse_args():
-    parser = argparse.ArgumentParser(description="One-off historical backfill")
+    parser = argparse.ArgumentParser(description="Backfill historical data for tracked symbols")
     parser.add_argument(
         "--symbols",
         type=str,
-        default=",".join(DEFAULT_SYMBOLS),
-        help="Comma-separated list of symbols (e.g. AAPL,MSFT,SPY)"
+        default=None,
+        help="Comma-separated list of symbols to backfill (e.g. AAPL,MSFT,SPY). If omitted, backfills all active symbols from database"
     )
     parser.add_argument(
         "--start",
@@ -143,7 +148,27 @@ def _parse_args():
         default=END_DATE.strftime("%Y-%m-%d"),
         help="End date (YYYY-MM-DD). Defaults to today (UTC)"
     )
+    parser.add_argument(
+        "--timeframe",
+        type=str,
+        default="1d",
+        help="Timeframe: 5m, 15m, 30m, 1h, 4h, 1d (default), 1w"
+    )
     return parser.parse_args()
+
+
+async def fetch_active_symbols(database_url: str) -> list[str]:
+    """Fetch all active symbols from tracked_symbols table"""
+    try:
+        conn = await asyncpg.connect(database_url)
+        rows = await conn.fetch(
+            "SELECT symbol FROM tracked_symbols WHERE active = TRUE ORDER BY symbol"
+        )
+        await conn.close()
+        return [row['symbol'] for row in rows]
+    except Exception as e:
+        logger.error(f"Error fetching symbols from database: {e}")
+        return []
 
 
 async def main():
@@ -160,12 +185,6 @@ async def main():
         logger.error("Start date must be <= end date")
         return
 
-    requested_symbols = [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
-    if not requested_symbols:
-        logger.error("No symbols provided")
-        return
-    # Initialize services
-    polygon_api_key = os.getenv("POLYGON_API_KEY")
     # Get database URL - prefer explicit DATABASE_URL env var
     database_url = os.getenv("DATABASE_URL")
     if not database_url:
@@ -176,6 +195,25 @@ async def main():
         db_port = os.getenv("DB_PORT", "5432")
         database_url = f"postgresql://{db_user}:{db_password}@{db_host}:{db_port}/market_data"
     
+    # Determine which symbols to backfill
+    if args.symbols:
+        # User provided explicit symbols
+        requested_symbols = [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
+    else:
+        # Fetch from database
+        logger.info("Fetching active symbols from database...")
+        requested_symbols = await fetch_active_symbols(database_url)
+    
+    if not requested_symbols:
+        logger.error("No symbols to backfill. Initialize symbols first with: python scripts/init_symbols.py")
+        return
+    
+    # Validate timeframe
+    if args.timeframe not in ['5m', '15m', '30m', '1h', '4h', '1d', '1w']:
+        logger.error(f"Invalid timeframe: {args.timeframe}. Must be one of: 5m, 15m, 30m, 1h, 4h, 1d, 1w")
+        return
+    
+    polygon_api_key = os.getenv("POLYGON_API_KEY")
     if not polygon_api_key:
         logger.error("POLYGON_API_KEY not set in environment")
         return
@@ -185,6 +223,7 @@ async def main():
     db_service = DatabaseService(database_url)
     
     logger.info(f"Starting backfill for {len(requested_symbols)} symbols")
+    logger.info(f"Timeframe: {args.timeframe}")
     logger.info(f"Date range: {start_dt} to {end_dt}")
     logger.info("-" * 60)
     
@@ -199,7 +238,8 @@ async def main():
             validation_service,
             db_service,
             start_dt,
-            end_dt
+            end_dt,
+            args.timeframe
         )
         total_inserted += inserted
         total_failed += failed
@@ -207,7 +247,7 @@ async def main():
     logger.info("-" * 60)
     logger.info(f"Backfill complete!")
     logger.info(f"Total records inserted: {total_inserted}")
-    logger.info(f"Failed symbols: {total_failed}/{len(DEFAULT_SYMBOLS)}")
+    logger.info(f"Failed symbols: {total_failed}/{len(requested_symbols)}")
     
     # Print status
     logger.info("-" * 60)

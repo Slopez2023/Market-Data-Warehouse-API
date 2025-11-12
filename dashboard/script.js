@@ -39,6 +39,7 @@ let state = {
  */
 document.addEventListener("DOMContentLoaded", () => {
   console.log("Dashboard initializing...");
+  setupSymbolSearch();
   refreshDashboard();
   setInterval(refreshDashboard, CONFIG.REFRESH_INTERVAL);
 
@@ -213,51 +214,195 @@ function updateAlerts(status) {
 }
 
 /**
- * Update symbol grid
+ * Track table state for sorting
+ */
+let symbolTableState = {
+  allSymbols: [],
+  currentSort: { column: 'symbol', direction: 'asc' },
+  currentFilter: { search: '', status: '' },
+};
+
+/**
+ * Update sort indicator display on headers
+ */
+function updateSortIndicators() {
+  const headers = document.querySelectorAll('.symbol-table th');
+  headers.forEach(header => {
+    const column = header.getAttribute('onclick')?.match(/sortTable\('([^']+)'\)/)?.[1];
+    if (column === symbolTableState.currentSort.column) {
+      header.classList.remove('sort-asc', 'sort-desc');
+      header.classList.add('data-sort', `sort-${symbolTableState.currentSort.direction}`);
+    } else {
+      header.classList.remove('sort-asc', 'sort-desc', 'data-sort');
+    }
+  });
+}
+
+/**
+ * Update symbol table with real data
  */
 async function updateSymbolGrid(status) {
-  const container = document.getElementById("symbol-grid");
-
+  const container = document.getElementById("symbol-tbody");
+  
   try {
-    const symbolCount = status.database?.symbols_available || 0;
-
-    if (symbolCount === 0) {
-      container.innerHTML =
-        '<p style="grid-column: 1/-1; color: var(--text-secondary);">No symbols in database</p>';
+    const response = await fetch(`${CONFIG.API_BASE}/api/v1/symbols/detailed`);
+    if (!response.ok) throw new Error(`Failed to fetch symbols (${response.status})`);
+    
+    const data = await response.json();
+    symbolTableState.allSymbols = data.symbols || [];
+    
+    if (symbolTableState.allSymbols.length === 0) {
+      container.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-secondary);">No symbols in database</td></tr>';
+      updateSymbolCount(0, 0);
       return;
     }
-
-    const displayCount = Math.min(symbolCount, 12);
-    const symbols = [];
-
-    for (let i = 1; i <= displayCount; i++) {
-      symbols.push(`Symbol ${i}`);
-    }
-
-    const html = symbols
-      .map(
-        (symbol, idx) => `
-        <div class="symbol-item" title="Click to view data">
-            <div class="symbol">#${idx + 1}</div>
-            <div class="quality">✓ Ready</div>
-            <div class="records">${idx === 0 ? "1 of " + symbolCount : ""}</div>
-        </div>
-    `
-      )
-      .join("");
-
-    container.innerHTML = html;
-
-    document.querySelectorAll(".symbol-item").forEach((item, idx) => {
-      item.addEventListener("click", () => {
-        console.log(`Clicked symbol ${idx + 1}`);
-      });
-    });
+    
+    renderSymbolTable();
+    
   } catch (error) {
     console.warn("Could not load symbols:", error);
-    container.innerHTML =
-      '<p style="grid-column: 1/-1; color: var(--text-secondary);">Symbol data unavailable</p>';
+    container.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-secondary);">Symbol data unavailable</td></tr>';
   }
+}
+
+/**
+ * Render filtered and sorted symbol table
+ */
+function renderSymbolTable() {
+  const container = document.getElementById("symbol-tbody");
+  
+  // Apply filters
+  let filtered = symbolTableState.allSymbols.filter(symbol => {
+    const matchesSearch = symbol.symbol.toLowerCase().includes(
+      symbolTableState.currentFilter.search.toLowerCase()
+    );
+    const matchesStatus = !symbolTableState.currentFilter.status || 
+                          symbol.status === symbolTableState.currentFilter.status;
+    return matchesSearch && matchesStatus;
+  });
+  
+  // Apply sort
+  const sortCol = symbolTableState.currentSort.column;
+  const sortDir = symbolTableState.currentSort.direction === 'asc' ? 1 : -1;
+  
+  filtered.sort((a, b) => {
+    let aVal = a[sortCol];
+    let bVal = b[sortCol];
+    
+    // Handle numeric vs string
+    if (typeof aVal === 'string') {
+      return aVal.localeCompare(bVal) * sortDir;
+    }
+    return (aVal - bVal) * sortDir;
+  });
+  
+  // Render rows
+  const html = filtered.map(symbol => `
+    <tr>
+      <td><span class="symbol-name">${escapeHtml(symbol.symbol)}</span></td>
+      <td>${formatNumber(symbol.records)}</td>
+      <td>${symbol.validation_rate.toFixed(1)}%</td>
+      <td>${formatDate(symbol.latest_data)}</td>
+      <td>${formatAge(symbol.data_age_hours)}</td>
+      <td>
+        <span class="status-badge status-${symbol.status}">
+          ${getStatusIcon(symbol.status)} ${capitalizeFirst(symbol.status)}
+        </span>
+      </td>
+    </tr>
+  `).join('');
+  
+  container.innerHTML = html || '<tr><td colspan="6" style="text-align: center; color: var(--text-secondary);">No matching symbols</td></tr>';
+  updateSymbolCount(filtered.length, symbolTableState.allSymbols.length);
+  updateSortIndicators();
+}
+
+/**
+ * Sort table by column
+ */
+function sortTable(column) {
+  if (symbolTableState.currentSort.column === column) {
+    // Toggle direction if clicking same column
+    symbolTableState.currentSort.direction = 
+      symbolTableState.currentSort.direction === 'asc' ? 'desc' : 'asc';
+  } else {
+    // New column, default to ascending
+    symbolTableState.currentSort.column = column;
+    symbolTableState.currentSort.direction = 'asc';
+  }
+  renderSymbolTable();
+}
+
+/**
+ * Handle search input
+ */
+function setupSymbolSearch() {
+  const searchInput = document.getElementById("symbol-search");
+  const statusFilter = document.getElementById("status-filter");
+  
+  if (searchInput) {
+    searchInput.addEventListener("input", (e) => {
+      symbolTableState.currentFilter.search = e.target.value;
+      renderSymbolTable();
+    });
+  }
+  
+  if (statusFilter) {
+    statusFilter.addEventListener("change", (e) => {
+      symbolTableState.currentFilter.status = e.target.value;
+      renderSymbolTable();
+    });
+  }
+}
+
+/**
+ * Update symbol count display
+ */
+function updateSymbolCount(displayed, total) {
+  const el = document.getElementById("symbol-count");
+  if (el) {
+    el.textContent = displayed === total 
+      ? `Showing ${displayed} symbol${displayed !== 1 ? 's' : ''}`
+      : `Showing ${displayed} of ${total} symbols`;
+  }
+}
+
+/**
+ * Get status icon
+ */
+function getStatusIcon(status) {
+  const icons = {
+    'healthy': '✓',
+    'warning': '⚠',
+    'stale': '✗'
+  };
+  return icons[status] || '?';
+}
+
+/**
+ * Format age in hours to readable format
+ */
+function formatAge(hours) {
+  if (hours < 1) return "<1h";
+  if (hours < 24) return `${Math.round(hours)}h`;
+  const days = Math.floor(hours / 24);
+  return `${days}d`;
+}
+
+/**
+ * HTML escape utility
+ */
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+/**
+ * Capitalize first letter
+ */
+function capitalizeFirst(str) {
+  return str.charAt(0).toUpperCase() + str.slice(1);
 }
 
 /**
@@ -400,5 +545,54 @@ async function testHealth() {
     );
   } catch (error) {
     alert(`✗ Health Check Failed\n\nError: ${error.message}`);
+  }
+}
+
+/**
+ * Run all tests and display results
+ */
+async function runAllTests() {
+  const container = document.getElementById("test-container");
+  const statusEl = document.getElementById("test-status");
+  const summaryEl = document.getElementById("test-summary");
+  const outputEl = document.getElementById("test-output");
+  
+  try {
+    // Show container and loading state
+    container.style.display = "block";
+    statusEl.className = "test-status running";
+    statusEl.textContent = "Running tests...";
+    summaryEl.textContent = "";
+    outputEl.textContent = "Executing tests...";
+    
+    // Call test endpoint
+    const response = await fetch(`${CONFIG.API_BASE}/api/v1/tests/run`, {
+      method: 'GET',
+      timeout: 130000 // 2+ minutes to allow tests to run
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Test endpoint returned ${response.status}`);
+    }
+    
+    const data = await response.json();
+    
+    // Update status
+    statusEl.className = data.success ? "test-status success" : "test-status error";
+    statusEl.textContent = data.success ? "✓ Tests Passed" : "✗ Tests Failed";
+    
+    // Update summary
+    summaryEl.textContent = data.summary;
+    
+    // Update output
+    const output = data.output || data.errors || "No output available";
+    outputEl.textContent = output;
+    
+  } catch (error) {
+    container.style.display = "block";
+    statusEl.className = "test-status error";
+    statusEl.textContent = "✗ Test Execution Error";
+    summaryEl.textContent = `Error: ${error.message}`;
+    outputEl.textContent = "Failed to run tests. Check API logs for details.";
   }
 }

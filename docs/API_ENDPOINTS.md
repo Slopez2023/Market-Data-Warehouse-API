@@ -175,24 +175,25 @@ fetch('http://localhost:8000/api/v1/status')
 
 ## Endpoint: GET /api/v1/historical/{symbol}
 
-Fetch historical OHLCV data for a symbol.
+Fetch historical OHLCV data for a symbol with configurable timeframe.
 
 ### Purpose
-Query validated historical candlestick data. Apply date range, quality filters, and validation status filters.
+Query validated historical candlestick data with selectable timeframes. Apply date range, quality filters, and validation status filters. Supports 7 timeframes: 5m, 15m, 30m, 1h, 4h, 1d, 1w.
 
 ### Request
 ```bash
-curl "http://localhost:8000/api/v1/historical/AAPL?start=2023-01-01&end=2023-12-31"
+curl "http://localhost:8000/api/v1/historical/AAPL?start=2023-01-01&end=2023-12-31&timeframe=1d"
 ```
 
 ### Request Parameters
 
 **Path Parameter:**
-- `symbol` (required) — Stock ticker (AAPL, MSFT, GOOGL, AMZN, etc.)
+- `symbol` (required) — Stock ticker (AAPL, MSFT, GOOGL, AMZN, etc.) or crypto (BTCUSD, ETHUSD, etc.)
 
 **Query Parameters:**
 - `start` (required) — Start date in format YYYY-MM-DD
 - `end` (required) — End date in format YYYY-MM-DD
+- `timeframe` (required) — Candle timeframe: `5m`, `15m`, `30m`, `1h`, `4h`, `1d`, or `1w`
 - `validated_only` (optional, default: true) — Filter to quality_score ≥ min_quality
 - `min_quality` (optional, default: 0.85) — Minimum quality score (0.0-1.0)
 

@@ -34,32 +34,14 @@ All services are managed together via Docker Compose. See [Installation Guide](/
 
 ## Documentation
 
-### Getting Started
-- [**Installation**](/docs/getting-started/INSTALLATION.md) - Setup instructions
-- [**Quick Setup**](/docs/getting-started/SETUP_GUIDE.md) - Configuration guide
-- [**5-Minute Quickstart**](/docs/getting-started/QUICKSTART.md) - Fastest way to get running
+**📘 [Complete Documentation Index](INDEX.md)** ← Start here for organized docs
 
-### API Reference
-- [**Endpoints**](/docs/api/ENDPOINTS.md) - Complete API reference
-- [**Authentication**](/docs/api/AUTHENTICATION.md) - API key management
-- [**Symbols**](/docs/api/SYMBOLS.md) - Symbol management and filtering
-- [**Crypto**](/docs/api/CRYPTO.md) - Cryptocurrency symbols and endpoints
-
-### Operations
-- [**Deployment**](/docs/operations/DEPLOYMENT.md) - Production deployment
-- [**Monitoring**](/docs/operations/MONITORING.md) - Observability & monitoring
-- [**Performance**](/docs/operations/PERFORMANCE.md) - Performance tuning
-- [**Troubleshooting**](/docs/operations/TROUBLESHOOTING.md) - Common issues
-
-### Development
-- [**Architecture**](/docs/development/ARCHITECTURE.md) - System design
-- [**Contributing**](/docs/development/CONTRIBUTING.md) - Development workflow
-- [**Testing**](/docs/development/TESTING.md) - Test suite & best practices
-
-### Reference
-- [**Quick Reference**](/docs/reference/QUICK_REFERENCE.md) - Command cheat sheet
-- [**FAQ**](/docs/reference/FAQ.md) - Frequently asked questions
-- [**Glossary**](/docs/reference/GLOSSARY.md) - Terms and definitions
+Quick links:
+- [Installation & Setup](/docs/getting-started/INSTALLATION.md)
+- [API Reference](/docs/api/ENDPOINTS.md)
+- [Deployment](/docs/operations/DEPLOYMENT.md)
+- [Troubleshooting](/docs/operations/TROUBLESHOOTING.md)
+- [FAQ](/docs/reference/FAQ.md)
 
 ---
 
@@ -70,6 +52,10 @@ All services are managed together via Docker Compose. See [Installation Guide](/
 - Support for 15+ US stocks
 - Full cryptocurrency support (Bitcoin, Ethereum, etc.)
 - OHLCV (Open, High, Low, Close, Volume) data
+- **Multi-timeframe support** (5m, 15m, 30m, 1h, 4h, 1d, 1w)
+- **Per-symbol timeframe configuration** - Configure different timeframes for each symbol
+- **Historical data queries by timeframe** - Query `/api/v1/historical/{symbol}?timeframe=1h`
+- **Admin endpoints** - `PUT /api/v1/admin/symbols/{symbol}/timeframes` to manage timeframes
 
 ✅ **Authentication & Security**
 - API key management with CRUD operations
@@ -118,8 +104,9 @@ All services are managed together via Docker Compose. See [Installation Guide](/
 | 6.4 | Comprehensive Tests | ✅ Complete | 124 |
 | 6.5 | Crypto Support | ✅ Complete | 24 |
 | 6.6 | Documentation | ✅ Complete | - |
+| 7 | Multi-Timeframe Support | ✅ Complete | 114 |
 
-**Overall**: ✅ Production Ready (All Phases 1-6.6 Complete)
+**Overall**: ✅ Production Ready (All Phases 1-7 Complete, 473 Tests Passing)
 
 ---
 
@@ -127,10 +114,11 @@ All services are managed together via Docker Compose. See [Installation Guide](/
 
 | Metric | Value |
 |--------|-------|
-| Total Tests | 359 passing |
+| Total Tests | 473 passing |
 | Pass Rate | 100% ✅ |
 | Code Coverage | Comprehensive |
 | Supported Symbols | 15+ stocks + crypto |
+| Supported Timeframes | 7 (5m, 15m, 30m, 1h, 4h, 1d, 1w) |
 | API Endpoints | 25+ |
 | Database Records | 18,359+ |
 | Response Time | <100ms (cached) |
@@ -165,11 +153,11 @@ All services are managed together via Docker Compose. See [Installation Guide](/
 
 ### Run Tests
 ```bash
-# All tests
+# All tests (473 passing)
 pytest tests/ -v
 
-# Specific phase
-pytest tests/test_phase_6_4.py tests/test_phase_6_5.py -v
+# Specific phase (e.g., timeframe tests)
+pytest tests/test_phase_7_timeframe_api.py -v
 
 # With coverage
 pytest tests/ --cov=src --cov-report=html
@@ -201,9 +189,10 @@ See [Project Structure](/docs/development/ARCHITECTURE.md) for details.
 
 ## Status
 
-**Last Updated**: November 10, 2025  
-**Current Version**: Phase 6.6 Complete - All Tests Passing  
-**Test Status**: 359/359 tests passing (100%) ✅  
+**Last Updated**: November 11, 2025  
+**Current Version**: Phase 7 Complete - Multi-Timeframe Support  
+**Test Status**: 473/473 tests passing (100%) ✅  
 **Production Ready**: Yes ✅
 
-For detailed development status, see [Development Status](/docs/reference/DEVELOPMENT_STATUS.md)
+For complete documentation, see [INDEX.md](INDEX.md)  
+For detailed development status, see [Development Status](/docs/development/DEVELOPMENT_STATUS.md)

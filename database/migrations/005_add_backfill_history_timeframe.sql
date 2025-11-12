@@ -20,7 +20,7 @@ BEGIN
       ADD COLUMN timeframe VARCHAR(10) DEFAULT '1d';
       
       CREATE INDEX IF NOT EXISTS idx_backfill_history_symbol_timeframe 
-      ON backfill_history(symbol, timeframe, timestamp DESC);
+      ON backfill_history(symbol, timeframe, backfill_timestamp DESC);
     END IF;
   END IF;
 END $$;
