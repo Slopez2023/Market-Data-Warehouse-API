@@ -342,3 +342,161 @@ class PolygonClient:
         except Exception as e:
             logger.error(f"Unexpected error fetching splits for {symbol}: {e}")
             raise
+    
+    async def fetch_news(self, symbol: str, start: str, end: str) -> List[Dict]:
+        """
+        Fetch news articles for a symbol.
+        
+        Args:
+            symbol: Stock ticker
+            start: Start date (YYYY-MM-DD)
+            end: End date (YYYY-MM-DD)
+        
+        Returns:
+            List of news articles from Polygon API
+        """
+        url = "https://api.polygon.io/v2/reference/news"
+        
+        params = {
+            "ticker": symbol,
+            "published_utc.gte": f"{start}T00:00:00Z",
+            "published_utc.lte": f"{end}T23:59:59Z",
+            "apiKey": self.api_key,
+            "limit": 1000,
+            "sort": "published_utc"
+        }
+        
+        all_articles = []
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, params=params, timeout=30) as response:
+                    
+                    if response.status == 429:
+                        logger.warning(f"Rate limited (429) fetching news for {symbol}")
+                        return []
+                    
+                    if response.status != 200:
+                        logger.error(f"API error {response.status} fetching news for {symbol}")
+                        return []
+                    
+                    data = await response.json()
+                    
+                    if data.get("status") == "ERROR":
+                        logger.warning(f"Polygon API error for {symbol} news: {data.get('message')}")
+                        return []
+                    
+                    results = data.get("results", [])
+                    logger.info(f"Fetched {len(results)} news articles for {symbol} ({start} to {end})")
+                    return results
+        
+        except aiohttp.ClientError as e:
+            logger.error(f"Network error fetching news for {symbol}: {e}")
+            return []
+        except Exception as e:
+            logger.error(f"Unexpected error fetching news for {symbol}: {e}")
+            return []
+    
+    async def fetch_earnings(self, symbol: str, start: str, end: str) -> List[Dict]:
+        """
+        Fetch earnings announcements for a symbol.
+        
+        Args:
+            symbol: Stock ticker
+            start: Start date (YYYY-MM-DD)
+            end: End date (YYYY-MM-DD)
+        
+        Returns:
+            List of earnings records from Polygon API
+        """
+        url = "https://api.polygon.io/v2/reference/dividends"
+        
+        params = {
+            "ticker": symbol,
+            "ex_dividend_date.gte": start,
+            "ex_dividend_date.lte": end,
+            "apiKey": self.api_key,
+            "limit": 1000
+        }
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, params=params, timeout=30) as response:
+                    
+                    if response.status == 429:
+                        logger.warning(f"Rate limited (429) fetching earnings for {symbol}")
+                        return []
+                    
+                    if response.status != 200:
+                        logger.error(f"API error {response.status} fetching earnings for {symbol}")
+                        return []
+                    
+                    data = await response.json()
+                    
+                    if data.get("status") == "ERROR":
+                        logger.warning(f"Polygon API error for {symbol} earnings: {data.get('message')}")
+                        return []
+                    
+                    results = data.get("results", [])
+                    logger.info(f"Fetched {len(results)} earnings records for {symbol} ({start} to {end})")
+                    return results
+        
+        except aiohttp.ClientError as e:
+            logger.error(f"Network error fetching earnings for {symbol}: {e}")
+            return []
+        except Exception as e:
+            logger.error(f"Unexpected error fetching earnings for {symbol}: {e}")
+            return []
+    
+    async def fetch_options_chain(self, symbol: str, date: datetime) -> Optional[Dict]:
+        """
+        Fetch options chain snapshot for a symbol on a specific date.
+        
+        Args:
+            symbol: Stock ticker
+            date: Date for options chain (datetime.date)
+        
+        Returns:
+            Options chain data with current price, or None if not found
+        """
+        date_str = date.strftime('%Y-%m-%d')
+        url = f"https://api.polygon.io/v3/snapshot/options/{symbol}"
+        
+        params = {
+            "apiKey": self.api_key,
+            "order": "desc",
+            "limit": 10000
+        }
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, params=params, timeout=30) as response:
+                    
+                    if response.status == 429:
+                        logger.warning(f"Rate limited (429) fetching options for {symbol}")
+                        return None
+                    
+                    if response.status == 404:
+                        logger.info(f"No options chain found for {symbol}")
+                        return None
+                    
+                    if response.status != 200:
+                        logger.error(f"API error {response.status} fetching options for {symbol}")
+                        return None
+                    
+                    data = await response.json()
+                    
+                    if data.get("status") == "ERROR":
+                        logger.warning(f"Polygon API error for {symbol} options: {data.get('message')}")
+                        return None
+                    
+                    results = data.get("results", {})
+                    logger.info(f"Fetched options chain snapshot for {symbol}")
+                    return results
+        
+        except aiohttp.ClientError as e:
+            logger.error(f"Network error fetching options for {symbol}: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Unexpected error fetching options for {symbol}: {e}")
+            return None

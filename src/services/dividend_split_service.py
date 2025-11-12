@@ -313,3 +313,76 @@ class DividendSplitService:
         
         finally:
             session.close()
+    
+    def insert_adjusted_ohlcv_batch(self, symbol: str, candles: List[Dict], timeframe: str = '1d') -> int:
+        """
+        Insert batch of adjusted OHLCV records.
+        
+        Args:
+            symbol: Stock ticker
+            candles: List of {t, o, h, l, c, v} with adjusted prices from Polygon
+            timeframe: Candle timeframe (default: '1d')
+        
+        Returns:
+            Number of rows inserted
+        """
+        if not candles:
+            return 0
+        
+        session = self.db.SessionLocal()
+        inserted = 0
+        
+        try:
+            for candle in candles:
+                try:
+                    # Convert Polygon timestamp (milliseconds) to seconds
+                    from datetime import datetime as dt
+                    timestamp_ms = candle.get('t', 0)
+                    timestamp = dt.utcfromtimestamp(timestamp_ms / 1000)
+                    
+                    query = text("""
+                        INSERT INTO ohlcv_adjusted 
+                        (time, symbol, open, high, low, close, volume, timeframe, source, fetched_at)
+                        VALUES (:time, :symbol, :open, :high, :low, :close, :volume, :timeframe, :source, :fetched_at)
+                        ON CONFLICT (symbol, time, timeframe) DO UPDATE SET
+                            open = EXCLUDED.open,
+                            high = EXCLUDED.high,
+                            low = EXCLUDED.low,
+                            close = EXCLUDED.close,
+                            volume = EXCLUDED.volume,
+                            fetched_at = EXCLUDED.fetched_at
+                    """)
+                    
+                    result = session.execute(
+                        query,
+                        {
+                            'time': timestamp,
+                            'symbol': symbol,
+                            'open': float(candle.get('o', 0)),
+                            'high': float(candle.get('h', 0)),
+                            'low': float(candle.get('l', 0)),
+                            'close': float(candle.get('c', 0)),
+                            'volume': int(candle.get('v', 0)),
+                            'timeframe': timeframe,
+                            'source': 'polygon',
+                            'fetched_at': datetime.utcnow()
+                        }
+                    )
+                    
+                    if result.rowcount > 0:
+                        inserted += 1
+                
+                except Exception as e:
+                    logger.error(f"Error inserting adjusted OHLCV for {symbol}: {e}")
+            
+            session.commit()
+            logger.info(f"Adjusted OHLCV batch for {symbol}: inserted {inserted}")
+        
+        except Exception as e:
+            logger.error(f"Error in adjusted OHLCV batch insert: {e}")
+            session.rollback()
+        
+        finally:
+            session.close()
+        
+        return inserted
