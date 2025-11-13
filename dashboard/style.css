@@ -561,6 +561,198 @@ body {
     }
 }
 
+/* === ENRICHMENT STATUS STYLES === */
+.enrichment-status-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 16px;
+}
+
+.enrichment-status-item {
+    background: rgba(15, 147, 112, 0.05);
+    border: 1px solid rgba(15, 147, 112, 0.2);
+    border-radius: 8px;
+    padding: 16px;
+    text-align: center;
+}
+
+.enrichment-status-item:hover {
+    border-color: var(--primary);
+    background: rgba(15, 147, 112, 0.1);
+}
+
+.enrichment-status-item label {
+    display: block;
+    color: var(--text-secondary);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 8px;
+}
+
+.enrichment-value {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--primary);
+    font-family: 'Monaco', 'Courier New', monospace;
+}
+
+/* === PIPELINE METRICS STYLES === */
+.pipeline-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 20px;
+}
+
+.pipeline-card {
+    background: rgba(15, 147, 112, 0.03);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 16px;
+}
+
+.pipeline-header {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--primary);
+    margin-bottom: 16px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid rgba(15, 147, 112, 0.2);
+}
+
+.pipeline-stat {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid rgba(15, 147, 112, 0.1);
+}
+
+.pipeline-stat:last-child {
+    border-bottom: none;
+}
+
+.pipeline-label {
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+
+.pipeline-value {
+    color: var(--primary);
+    font-weight: 600;
+    font-family: 'Monaco', 'Courier New', monospace;
+}
+
+/* === JOB QUEUE STYLES === */
+.job-queue-table {
+    margin-bottom: 16px;
+}
+
+.job-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.job-table thead {
+    background: rgba(15, 147, 112, 0.05);
+    border-bottom: 2px solid var(--border-color);
+}
+
+.job-table th {
+    padding: 12px;
+    text-align: left;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.job-table tbody tr {
+    transition: background 0.2s ease;
+}
+
+.job-table tbody tr:nth-child(even) {
+    background: rgba(15, 147, 112, 0.02);
+}
+
+.job-table tbody tr:hover {
+    background: rgba(15, 147, 112, 0.08);
+}
+
+.job-table td {
+    padding: 12px;
+    border-bottom: 1px solid var(--border-color);
+    font-size: 14px;
+    color: var(--text-primary);
+}
+
+.job-symbol {
+    font-weight: 600;
+    font-family: 'Monaco', 'Courier New', monospace;
+    color: var(--primary);
+}
+
+.job-success {
+    display: inline-block;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-weight: 600;
+}
+
+.job-success.success {
+    background: rgba(16, 185, 129, 0.15);
+    color: var(--success);
+}
+
+.job-success.failed {
+    background: rgba(239, 68, 68, 0.15);
+    color: var(--danger);
+}
+
+.job-count {
+    font-size: 12px;
+    color: var(--text-secondary);
+    padding-top: 8px;
+    border-top: 1px solid var(--border-color);
+}
+
+/* === HEALTH STATUS STYLES === */
+.health-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 16px;
+}
+
+.health-card {
+    background: rgba(15, 147, 112, 0.05);
+    border: 1px solid rgba(15, 147, 112, 0.2);
+    border-radius: 8px;
+    padding: 16px;
+    text-align: center;
+}
+
+.health-card:hover {
+    border-color: var(--primary);
+    background: rgba(15, 147, 112, 0.1);
+}
+
+.health-header {
+    color: var(--text-secondary);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 8px;
+    font-weight: 600;
+}
+
+.health-status {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--primary);
+    font-family: 'Monaco', 'Courier New', monospace;
+}
+
 /* === TEST SUITE STYLES === */
 .test-controls {
     margin-bottom: 20px;

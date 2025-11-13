@@ -371,17 +371,19 @@ curl -X DELETE http://localhost:8000/api/v1/admin/symbols/{symbol_id} \
 
 ### Pre-loaded Symbols
 
-On bootstrap, these symbols are created:
+On bootstrap, 60 symbols are created across 3 asset classes:
 
-**Stocks** (12):
-- AAPL, MSFT, GOOGL, AMZN, NVDA, TSLA
-- META, NFLX, AMD, INTC, PYPL, SQ
+**US Stocks** (20):
+- AAPL, MSFT, GOOGL, AMZN, META, NVDA, TSLA, AMD, NFLX, BRK.B
+- JPM, V, XOM, PG, KO, PEP, COST, INTC, BA, DIS
 
-**Crypto** (3):
-- BTC, ETH, SOL
+**Cryptocurrencies** (20):
+- BTC-USD, ETH-USD, BNB-USD, SOL-USD, XRP-USD, ADA-USD, AVAX-USD, DOT-USD, MATIC-USD, ATOM-USD
+- DOGE-USD, SHIB-USD, LINK-USD, AAVE-USD, UNI-USD, OP-USD, ARB-USD, INJ-USD, LTC-USD, NEAR-USD
 
-**Other**:
-- ROKU, MSTR, SOFI
+**ETFs** (20):
+- SPY, QQQ, DIA, IWM, VIX, TLT, XLK, XLF, EEM, ARKK
+- GLD, SLV, XLE, XLV, XLI, XLP, XLY, XLRE, XLU, SCHB
 
 ### Adding More Symbols
 

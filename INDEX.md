@@ -44,6 +44,7 @@
 - **[Frequently Asked Questions](/docs/reference/FAQ.md)** — Common questions
 - **[Glossary](/docs/reference/GLOSSARY.md)** — Terms and definitions
 - **[Technology Stack](/docs/reference/TECH_STACK.md)** — Languages and tools
+- **[Data Sources](/docs/reference/DATA_SOURCES.md)** — All available data and coverage
 
 ---
 
@@ -102,7 +103,8 @@ docs/reference/
 ├── QUICK_REFERENCE.md     - CLI commands & examples
 ├── FAQ.md                 - Frequently asked questions
 ├── GLOSSARY.md            - Terms & definitions
-└── TECH_STACK.md          - Technology overview
+├── TECH_STACK.md          - Technology overview
+└── DATA_SOURCES.md        - All available data sources & coverage
 ```
 
 ---

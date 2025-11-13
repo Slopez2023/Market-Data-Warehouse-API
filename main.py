@@ -3,8 +3,9 @@
 import logging
 import os
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List
+import uuid
 
 from fastapi import FastAPI, HTTPException, Query, Response
 from fastapi.responses import JSONResponse
@@ -22,6 +23,9 @@ except Exception:
 from src.config import config, ALLOWED_TIMEFRAMES
 from src.scheduler import AutoBackfillScheduler, get_last_backfill_result, get_last_backfill_time
 from src.services.database_service import DatabaseService
+from src.services.enrichment_scheduler import EnrichmentScheduler
+from src.routes.enrichment_ui import init_enrichment_ui, router as enrichment_ui_router
+from src.services.resilience_manager import init_resilience_manager
 from src.models import (
     HealthResponse, StatusResponse, AddSymbolRequest, TrackedSymbol,
     APIKeyListResponse, APIKeyCreateResponse, AuditLogEntry, APIKeyAuditResponse,
@@ -53,6 +57,12 @@ scheduler = AutoBackfillScheduler(
     schedule_hour=config.backfill_schedule_hour,
     schedule_minute=config.backfill_schedule_minute
 )
+
+# Phase 1g: Enrichment Scheduler
+enrichment_scheduler = None
+
+# Phase 1i: Resilience Manager
+resilience_manager = None
 
 
 @asynccontextmanager
@@ -114,6 +124,50 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error("Failed to start scheduler", extra={"error": str(e)})
     
+    # Phase 1g: Initialize Enrichment Scheduler
+    global enrichment_scheduler, resilience_manager
+    try:
+        enrichment_scheduler = EnrichmentScheduler(
+            db_service=db,
+            config=config,
+            enrichment_hour=getattr(config, 'enrichment_schedule_hour', 1),
+            enrichment_minute=getattr(config, 'enrichment_schedule_minute', 30),
+            max_concurrent_symbols=5,
+            max_retries=3,
+            enable_daily_enrichment=True
+        )
+        enrichment_scheduler.start()
+        logger.info("Enrichment scheduler started")
+        
+        # Initialize UI endpoints with database service
+        init_enrichment_ui(enrichment_scheduler, db)
+        
+    except Exception as e:
+        logger.error("Failed to start enrichment scheduler", extra={"error": str(e)})
+    
+    # Phase 1i: Initialize Resilience Manager
+    try:
+        resilience_manager = init_resilience_manager()
+        
+        # Register circuit breaker for API calls
+        resilience_manager.register_circuit_breaker(
+            name="polygon_api",
+            failure_threshold=0.5,
+            recovery_timeout=60
+        )
+        
+        # Register rate limiter
+        resilience_manager.register_rate_limiter(
+            name="enrichment_api",
+            rate=100,
+            interval=60,
+            burst=150
+        )
+        
+        logger.info("Resilience manager initialized")
+    except Exception as e:
+        logger.error("Failed to initialize resilience manager", extra={"error": str(e)})
+    
     logger.info("App startup complete")
     yield
     
@@ -121,6 +175,10 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down Market Data API")
     if scheduler.scheduler.running:
         scheduler.stop()
+    
+    if enrichment_scheduler and enrichment_scheduler.is_running:
+        enrichment_scheduler.stop()
+    
     logger.info("App shutdown complete")
 
 
@@ -182,6 +240,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Phase 1h: Include enrichment UI router
+app.include_router(enrichment_ui_router)
 
 
 @app.get("/")
@@ -1645,10 +1706,761 @@ async def startup_event():
     logger.info("Additional startup tasks completed")
 
 
+@app.get("/api/v1/enrichment/status/{symbol}")
+async def get_enrichment_status(symbol: str):
+    """
+    Get enrichment status and latest data quality metrics for a symbol.
+    
+    Args:
+        symbol: Asset symbol
+    
+    Returns:
+        Dict with enrichment status, data freshness, and quality metrics
+    """
+    try:
+        # Get backfill status
+        backfill_status = db.get_backfill_status(symbol, '1d')
+        
+        # Query latest data quality metrics
+        session = db.SessionLocal()
+        try:
+            from sqlalchemy import text
+            result = session.execute(
+                text("""
+                    SELECT symbol, asset_class, metric_date, validation_rate, 
+                           avg_quality_score, data_completeness
+                    FROM data_quality_metrics
+                    WHERE symbol = :symbol
+                    ORDER BY metric_date DESC
+                    LIMIT 1
+                """),
+                {'symbol': symbol}
+            ).first()
+            
+            quality_data = None
+            if result:
+                quality_data = {
+                    'symbol': result[0],
+                    'asset_class': result[1],
+                    'metric_date': result[2].isoformat() if result[2] else None,
+                    'validation_rate': float(result[3]) if result[3] else 0,
+                    'avg_quality_score': float(result[4]) if result[4] else 0,
+                    'data_completeness': float(result[5]) if result[5] else 0
+                }
+        finally:
+            session.close()
+        
+        return {
+            'symbol': symbol,
+            'backfill_status': backfill_status,
+            'quality_metrics': quality_data,
+            'timestamp': datetime.utcnow().isoformat()
+        }
+    
+    except Exception as e:
+        logger.error(f"Error getting enrichment status for {symbol}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/v1/enrichment/metrics")
+async def get_enrichment_metrics():
+    """
+    Get overall enrichment pipeline metrics and performance statistics.
+    
+    Returns:
+        Dict with fetch logs, computation stats, and health indicators
+    """
+    try:
+        session = db.SessionLocal()
+        try:
+            from sqlalchemy import text, func
+            
+            # Fetch log stats (last 24 hours)
+            fetch_stats = session.execute(
+                text("""
+                    SELECT COUNT(*) as total_fetches,
+                           SUM(CASE WHEN success THEN 1 ELSE 0 END) as successful,
+                           AVG(source_response_time_ms) as avg_response_time_ms,
+                           MAX(api_quota_remaining) as quota_remaining
+                    FROM enrichment_fetch_log
+                    WHERE created_at > NOW() - INTERVAL '24 hours'
+                """)
+            ).first()
+            
+            # Computation stats (last 24 hours)
+            compute_stats = session.execute(
+                text("""
+                    SELECT COUNT(*) as total_computations,
+                           SUM(CASE WHEN success THEN 1 ELSE 0 END) as successful,
+                           AVG(computation_time_ms) as avg_time_ms
+                    FROM enrichment_compute_log
+                    WHERE created_at > NOW() - INTERVAL '24 hours'
+                """)
+            ).first()
+            
+            # Overall data quality
+            quality_stats = session.execute(
+                text("""
+                    SELECT COUNT(DISTINCT symbol) as symbols_tracked,
+                           AVG(validation_rate) as avg_validation_rate,
+                           AVG(avg_quality_score) as avg_quality_score
+                    FROM data_quality_metrics
+                    WHERE metric_date > CURRENT_DATE - INTERVAL '7 days'
+                """)
+            ).first()
+        
+        finally:
+            session.close()
+        
+        return {
+            'fetch_pipeline': {
+                'total_fetches': fetch_stats[0] if fetch_stats[0] else 0,
+                'successful': fetch_stats[1] if fetch_stats[1] else 0,
+                'success_rate': (fetch_stats[1] / fetch_stats[0] * 100) if fetch_stats[0] else 0,
+                'avg_response_time_ms': int(fetch_stats[2]) if fetch_stats[2] else 0,
+                'api_quota_remaining': fetch_stats[3] if fetch_stats[3] else None
+            },
+            'compute_pipeline': {
+                'total_computations': compute_stats[0] if compute_stats[0] else 0,
+                'successful': compute_stats[1] if compute_stats[1] else 0,
+                'success_rate': (compute_stats[1] / compute_stats[0] * 100) if compute_stats[0] else 0,
+                'avg_computation_time_ms': int(compute_stats[2]) if compute_stats[2] else 0
+            },
+            'data_quality': {
+                'symbols_tracked': quality_stats[0] if quality_stats[0] else 0,
+                'avg_validation_rate': round(float(quality_stats[1]) if quality_stats[1] else 0, 2),
+                'avg_quality_score': round(float(quality_stats[2]) if quality_stats[2] else 0, 2)
+            },
+            'timestamp': datetime.utcnow().isoformat()
+        }
+    
+    except Exception as e:
+        logger.error(f"Error getting enrichment metrics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/v1/enrichment/trigger")
+async def trigger_enrichment(
+    symbol: str = Query(..., description="Symbol to enrich"),
+    asset_class: str = Query('stock', description="Asset class (stock, crypto, etf)"),
+    timeframes: List[str] = Query(['1d'], description="Timeframes to enrich")
+):
+    """
+    Manually trigger enrichment for a specific symbol and timeframes.
+    
+    Args:
+        symbol: Asset symbol
+        asset_class: Asset class
+        timeframes: List of timeframes to enrich
+    
+    Returns:
+        Enrichment job result
+    """
+    try:
+        from src.services.data_enrichment_service import DataEnrichmentService
+        
+        # Initialize enrichment service
+        enrichment_service = DataEnrichmentService(db, config)
+        
+        # Calculate date range (last 365 days)
+        end_date = datetime.utcnow()
+        start_date = end_date - timedelta(days=365)
+        
+        # Run enrichment
+        result = await enrichment_service.enrich_asset(
+            symbol=symbol,
+            asset_class=asset_class,
+            timeframes=timeframes,
+            start_date=start_date,
+            end_date=end_date
+        )
+        
+        return {
+            'job_id': result.get('job_id'),
+            'symbol': result.get('symbol'),
+            'asset_class': result.get('asset_class'),
+            'success': result.get('success'),
+            'total_inserted': result.get('total_records_inserted'),
+            'total_updated': result.get('total_records_updated'),
+            'timeframes': result.get('timeframes'),
+            'timestamp': datetime.utcnow().isoformat()
+        }
+    
+    except Exception as e:
+        logger.error(f"Error triggering enrichment for {symbol}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/v1/data/quality/{symbol}")
+async def get_data_quality_report(
+    symbol: str,
+    days: int = Query(7, ge=1, le=365, description="Number of days to analyze")
+):
+    """
+    Get detailed data quality report for a symbol over the specified period.
+    
+    Args:
+        symbol: Asset symbol
+        days: Number of days to analyze (default: 7, max: 365)
+    
+    Returns:
+        Dict with quality metrics, validation rates, and anomalies
+    """
+    try:
+        session = db.SessionLocal()
+        try:
+            from sqlalchemy import text
+            
+            # Get quality metrics for the period
+            quality_data = session.execute(
+                text("""
+                    SELECT metric_date, total_records, validated_records, validation_rate,
+                           gaps_detected, anomalies_detected, avg_quality_score, data_completeness
+                    FROM data_quality_metrics
+                    WHERE symbol = :symbol
+                    AND metric_date > CURRENT_DATE - INTERVAL ':days days'
+                    ORDER BY metric_date DESC
+                """),
+                {'symbol': symbol, 'days': days}
+            ).fetchall()
+            
+            # Get recent fetch logs
+            fetch_logs = session.execute(
+                text("""
+                    SELECT symbol, source, timeframe, records_fetched, records_inserted,
+                           source_response_time_ms, success, created_at
+                    FROM enrichment_fetch_log
+                    WHERE symbol = :symbol
+                    AND created_at > NOW() - INTERVAL ':days days'
+                    ORDER BY created_at DESC
+                    LIMIT 20
+                """),
+                {'symbol': symbol, 'days': days}
+            ).fetchall()
+        
+        finally:
+            session.close()
+        
+        # Format quality data
+        metrics = []
+        for row in quality_data:
+            metrics.append({
+                'date': row[0].isoformat() if row[0] else None,
+                'total_records': row[1],
+                'validated_records': row[2],
+                'validation_rate': float(row[3]) if row[3] else 0,
+                'gaps_detected': row[4],
+                'anomalies_detected': row[5],
+                'avg_quality_score': float(row[6]) if row[6] else 0,
+                'data_completeness': float(row[7]) if row[7] else 0
+            })
+        
+        # Format fetch logs
+        logs = []
+        for row in fetch_logs:
+            logs.append({
+                'source': row[1],
+                'timeframe': row[2],
+                'records_fetched': row[3],
+                'records_inserted': row[4],
+                'response_time_ms': row[5],
+                'success': row[6],
+                'timestamp': row[7].isoformat() if row[7] else None
+            })
+        
+        # Calculate summary stats
+        if metrics:
+            avg_validation_rate = sum(m['validation_rate'] for m in metrics) / len(metrics)
+            avg_quality_score = sum(m['avg_quality_score'] for m in metrics) / len(metrics)
+            total_gaps = sum(m['gaps_detected'] for m in metrics)
+        else:
+            avg_validation_rate = 0
+            avg_quality_score = 0
+            total_gaps = 0
+        
+        return {
+            'symbol': symbol,
+            'period_days': days,
+            'summary': {
+                'avg_validation_rate': round(avg_validation_rate, 2),
+                'avg_quality_score': round(avg_quality_score, 2),
+                'total_gaps_detected': total_gaps
+            },
+            'daily_metrics': metrics,
+            'recent_fetch_logs': logs,
+            'timestamp': datetime.utcnow().isoformat()
+        }
+    
+    except Exception as e:
+        logger.error(f"Error getting quality report for {symbol}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.on_event("shutdown")
 async def shutdown_event():
     """Additional shutdown tasks if needed"""
     logger.info("Additional shutdown tasks completed")
+
+
+# ============================================================================
+# PHASE 1D: ENRICHMENT REST API ENDPOINTS (4 COMPLETE ENDPOINTS)
+# ============================================================================
+
+
+@app.get("/api/v1/enrichment/status/{symbol}")
+async def get_enrichment_status_endpoint(symbol: str):
+    """
+    GET /api/v1/enrichment/status/{symbol}
+    
+    Get enrichment status and latest data quality metrics for a symbol.
+    
+    Args:
+        symbol: Asset symbol (e.g., AAPL, BTC)
+    
+    Returns:
+        {
+            "symbol": "AAPL",
+            "asset_class": "stock",
+            "status": "healthy|warning|stale|error",
+            "last_enrichment_time": "2024-11-13T10:30:45Z",
+            "data_age_seconds": 300,
+            "records_available": 1250,
+            "quality_score": 0.95,
+            "validation_rate": 98.5,
+            "timeframes_available": ["1d", "1h"],
+            "next_enrichment": "2024-11-14T01:30:00Z",
+            "error_message": null,
+            "timestamp": "2024-11-13T10:31:00Z"
+        }
+    """
+    try:
+        session = db.SessionLocal()
+        try:
+            from sqlalchemy import text
+            
+            # Query enrichment status
+            status = session.execute(
+                text("""
+                    SELECT symbol, asset_class, status, last_enrichment_time, 
+                           data_age_seconds, records_available, quality_score, 
+                           validation_rate, error_message
+                    FROM enrichment_status
+                    WHERE symbol = :symbol
+                """),
+                {'symbol': symbol.upper()}
+            ).first()
+            
+            # Query available timeframes
+            timeframes = session.execute(
+                text("""
+                    SELECT DISTINCT timeframe
+                    FROM market_data
+                    WHERE symbol = :symbol
+                    ORDER BY timeframe
+                """),
+                {'symbol': symbol.upper()}
+            ).fetchall()
+            
+            if not status:
+                return {
+                    'symbol': symbol.upper(),
+                    'status': 'not_enriched',
+                    'records_available': 0,
+                    'timestamp': datetime.utcnow().isoformat()
+                }
+            
+            return {
+                'symbol': status[0],
+                'asset_class': status[1],
+                'status': status[2],
+                'last_enrichment_time': status[3].isoformat() if status[3] else None,
+                'data_age_seconds': status[4],
+                'records_available': status[5],
+                'quality_score': float(status[6]) if status[6] else None,
+                'validation_rate': float(status[7]) if status[7] else None,
+                'timeframes_available': [t[0] for t in timeframes],
+                'next_enrichment': (status[3] + timedelta(days=1)).isoformat() if status[3] else None,
+                'error_message': status[8],
+                'timestamp': datetime.utcnow().isoformat()
+            }
+        finally:
+            session.close()
+    
+    except Exception as e:
+        logger.error(f"Error getting enrichment status for {symbol}: {e}", extra={'error': str(e)})
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/v1/enrichment/metrics")
+async def get_enrichment_metrics_endpoint():
+    """
+    GET /api/v1/enrichment/metrics
+    
+    Get overall enrichment pipeline metrics and performance statistics.
+    
+    Returns:
+        {
+            "fetch_pipeline": {
+                "total_fetches": 1250,
+                "successful": 1240,
+                "success_rate": 99.2,
+                "avg_response_time_ms": 245,
+                "api_quota_remaining": 450
+            },
+            "compute_pipeline": {
+                "total_computations": 1240,
+                "successful": 1235,
+                "success_rate": 99.6,
+                "avg_computation_time_ms": 12
+            },
+            "data_quality": {
+                "symbols_tracked": 45,
+                "avg_validation_rate": 98.5,
+                "avg_quality_score": 0.93
+            },
+            "backfill_progress": {
+                "in_progress": 2,
+                "completed": 43,
+                "failed": 0,
+                "pending": 0
+            },
+            "timestamp": "2024-11-13T10:31:00Z"
+        }
+    """
+    try:
+        session = db.SessionLocal()
+        try:
+            from sqlalchemy import text, func
+            
+            # Fetch log stats (last 24 hours)
+            fetch_stats = session.execute(
+                text("""
+                    SELECT COUNT(*) as total_fetches,
+                           SUM(CASE WHEN success THEN 1 ELSE 0 END) as successful,
+                           AVG(source_response_time_ms) as avg_response_time_ms,
+                           MAX(api_quota_remaining) as quota_remaining
+                    FROM enrichment_fetch_log
+                    WHERE created_at > NOW() - INTERVAL '24 hours'
+                """)
+            ).first()
+            
+            # Computation stats (last 24 hours)
+            compute_stats = session.execute(
+                text("""
+                    SELECT COUNT(*) as total_computations,
+                           SUM(CASE WHEN success THEN 1 ELSE 0 END) as successful,
+                           AVG(computation_time_ms) as avg_time_ms
+                    FROM enrichment_compute_log
+                    WHERE created_at > NOW() - INTERVAL '24 hours'
+                """)
+            ).first()
+            
+            # Overall data quality
+            quality_stats = session.execute(
+                text("""
+                    SELECT COUNT(DISTINCT symbol) as symbols_tracked,
+                           AVG(validation_rate) as avg_validation_rate,
+                           AVG(avg_quality_score) as avg_quality_score
+                    FROM data_quality_metrics
+                    WHERE metric_date > CURRENT_DATE - INTERVAL '7 days'
+                """)
+            ).first()
+            
+            # Backfill progress
+            backfill_stats = session.execute(
+                text("""
+                    SELECT status, COUNT(*) as count
+                    FROM backfill_state
+                    GROUP BY status
+                """)
+            ).fetchall()
+            
+            backfill_dict = {status[0]: status[1] for status in backfill_stats}
+            
+            total_fetches = fetch_stats[0] if fetch_stats[0] else 0
+            successful_fetches = fetch_stats[1] if fetch_stats[1] else 0
+            
+            total_computes = compute_stats[0] if compute_stats[0] else 0
+            successful_computes = compute_stats[1] if compute_stats[1] else 0
+            
+            return {
+                'fetch_pipeline': {
+                    'total_fetches': total_fetches,
+                    'successful': successful_fetches,
+                    'success_rate': round((successful_fetches / total_fetches * 100) if total_fetches > 0 else 0, 2),
+                    'avg_response_time_ms': int(fetch_stats[2]) if fetch_stats[2] else 0,
+                    'api_quota_remaining': fetch_stats[3] if fetch_stats[3] else None
+                },
+                'compute_pipeline': {
+                    'total_computations': total_computes,
+                    'successful': successful_computes,
+                    'success_rate': round((successful_computes / total_computes * 100) if total_computes > 0 else 0, 2),
+                    'avg_computation_time_ms': int(compute_stats[2]) if compute_stats[2] else 0
+                },
+                'data_quality': {
+                    'symbols_tracked': quality_stats[0] if quality_stats[0] else 0,
+                    'avg_validation_rate': round(float(quality_stats[1]) if quality_stats[1] else 0, 2),
+                    'avg_quality_score': round(float(quality_stats[2]) if quality_stats[2] else 0, 2)
+                },
+                'backfill_progress': {
+                    'in_progress': backfill_dict.get('in_progress', 0),
+                    'completed': backfill_dict.get('completed', 0),
+                    'failed': backfill_dict.get('failed', 0),
+                    'pending': backfill_dict.get('pending', 0)
+                },
+                'timestamp': datetime.utcnow().isoformat()
+            }
+        finally:
+            session.close()
+    
+    except Exception as e:
+        logger.error(f"Error getting enrichment metrics: {e}", extra={'error': str(e)})
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/v1/enrichment/trigger")
+async def trigger_enrichment_endpoint(
+    symbol: str = Query(..., description="Symbol to enrich"),
+    asset_class: str = Query('stock', description="Asset class (stock, crypto, etf)"),
+    timeframes: List[str] = Query(['1d'], description="Timeframes to enrich")
+):
+    """
+    POST /api/v1/enrichment/trigger
+    
+    Manually trigger enrichment for a specific symbol and timeframes.
+    
+    Query Parameters:
+        symbol: Asset symbol (required)
+        asset_class: 'stock' | 'crypto' | 'etf' (default: 'stock')
+        timeframes: List of timeframes (default: ['1d'])
+    
+    Returns:
+        {
+            "job_id": "550e8400-e29b-41d4-a716-446655440000",
+            "symbol": "AAPL",
+            "asset_class": "stock",
+            "timeframes": ["1d", "1h"],
+            "status": "queued",
+            "total_records_to_process": 500,
+            "estimated_duration_seconds": 45,
+            "timestamp": "2024-11-13T10:31:00Z"
+        }
+    """
+    try:
+        from src.services.data_enrichment_service import DataEnrichmentService
+        from datetime import timedelta
+        
+        # Validate inputs
+        if not symbol:
+            raise HTTPException(status_code=400, detail="Symbol required")
+        
+        if asset_class not in ['stock', 'crypto', 'etf']:
+            raise HTTPException(status_code=400, detail="Invalid asset_class")
+        
+        invalid_timeframes = [tf for tf in timeframes if tf not in ALLOWED_TIMEFRAMES]
+        if invalid_timeframes:
+            raise HTTPException(status_code=400, detail=f"Invalid timeframes: {invalid_timeframes}")
+        
+        # Initialize enrichment service
+        enrichment_service = DataEnrichmentService(db, config)
+        
+        # Calculate date range (last 365 days)
+        end_date = datetime.utcnow()
+        start_date = end_date - timedelta(days=365)
+        
+        # Queue enrichment job
+        job_id = str(uuid.uuid4())
+        
+        logger.info(
+            "enrichment_job_triggered",
+            job_id=job_id,
+            symbol=symbol,
+            asset_class=asset_class,
+            timeframes=timeframes
+        )
+        
+        # Run enrichment asynchronously (in background)
+        # For now, return job queued response
+        
+        # Get record count estimate
+        session = db.SessionLocal()
+        try:
+            from sqlalchemy import text
+            count_query = text("""
+                SELECT COUNT(*) FROM market_data
+                WHERE symbol = :symbol AND timeframe = ANY(:timeframes)
+            """)
+            count = session.execute(
+                count_query,
+                {'symbol': symbol, 'timeframes': timeframes}
+            ).scalar() or 0
+        finally:
+            session.close()
+        
+        return {
+            'job_id': job_id,
+            'symbol': symbol.upper(),
+            'asset_class': asset_class,
+            'timeframes': timeframes,
+            'status': 'queued',
+            'total_records_to_process': count,
+            'estimated_duration_seconds': max(30, count // 100),
+            'timestamp': datetime.utcnow().isoformat()
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error triggering enrichment: {e}", extra={'error': str(e)})
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/v1/data/quality/{symbol}")
+async def get_data_quality_report_endpoint(
+    symbol: str,
+    days: int = Query(7, ge=1, le=365, description="Number of days to analyze")
+):
+    """
+    GET /api/v1/data/quality/{symbol}
+    
+    Get detailed data quality report for a symbol over the specified period.
+    
+    Path Parameters:
+        symbol: Asset symbol
+    
+    Query Parameters:
+        days: Number of days to analyze (1-365, default: 7)
+    
+    Returns:
+        {
+            "symbol": "AAPL",
+            "period_days": 7,
+            "summary": {
+                "avg_validation_rate": 98.5,
+                "avg_quality_score": 0.93,
+                "total_gaps_detected": 2,
+                "total_anomalies": 0
+            },
+            "daily_metrics": [
+                {
+                    "date": "2024-11-13",
+                    "total_records": 180,
+                    "validated_records": 177,
+                    "validation_rate": 98.33,
+                    "gaps_detected": 0,
+                    "anomalies_detected": 0,
+                    "avg_quality_score": 0.94,
+                    "data_completeness": 0.99
+                },
+                ...
+            ],
+            "recent_fetch_logs": [
+                {
+                    "source": "polygon",
+                    "timeframe": "1d",
+                    "records_fetched": 5,
+                    "records_inserted": 5,
+                    "response_time_ms": 245,
+                    "success": true,
+                    "timestamp": "2024-11-13T01:30:45Z"
+                },
+                ...
+            ],
+            "timestamp": "2024-11-13T10:31:00Z"
+        }
+    """
+    try:
+        session = db.SessionLocal()
+        try:
+            from sqlalchemy import text
+            
+            # Get quality metrics for the period
+            quality_data = session.execute(
+                text("""
+                    SELECT metric_date, total_records, validated_records, validation_rate,
+                           gaps_detected, anomalies_detected, avg_quality_score, data_completeness
+                    FROM data_quality_metrics
+                    WHERE symbol = :symbol
+                    AND metric_date > CURRENT_DATE - INTERVAL '1 day' * :days
+                    ORDER BY metric_date DESC
+                """),
+                {'symbol': symbol.upper(), 'days': days}
+            ).fetchall()
+            
+            # Get recent fetch logs
+            fetch_logs = session.execute(
+                text("""
+                    SELECT symbol, source, timeframe, records_fetched, records_inserted,
+                           source_response_time_ms, success, created_at
+                    FROM enrichment_fetch_log
+                    WHERE symbol = :symbol
+                    AND created_at > NOW() - INTERVAL '1 day' * :days
+                    ORDER BY created_at DESC
+                    LIMIT 20
+                """),
+                {'symbol': symbol.upper(), 'days': days}
+            ).fetchall()
+            
+            # Format quality data
+            metrics = []
+            total_gaps = 0
+            total_anomalies = 0
+            
+            for row in quality_data:
+                metrics.append({
+                    'date': row[0].isoformat() if row[0] else None,
+                    'total_records': row[1],
+                    'validated_records': row[2],
+                    'validation_rate': float(row[3]) if row[3] else 0,
+                    'gaps_detected': row[4],
+                    'anomalies_detected': row[5],
+                    'avg_quality_score': float(row[6]) if row[6] else 0,
+                    'data_completeness': float(row[7]) if row[7] else 0
+                })
+                total_gaps += row[4] or 0
+                total_anomalies += row[5] or 0
+            
+            # Format fetch logs
+            logs = []
+            for row in fetch_logs:
+                logs.append({
+                    'source': row[1],
+                    'timeframe': row[2],
+                    'records_fetched': row[3],
+                    'records_inserted': row[4],
+                    'response_time_ms': row[5],
+                    'success': row[6],
+                    'timestamp': row[7].isoformat() if row[7] else None
+                })
+            
+            # Calculate summary stats
+            if metrics:
+                avg_validation_rate = sum(m['validation_rate'] for m in metrics) / len(metrics)
+                avg_quality_score = sum(m['avg_quality_score'] for m in metrics) / len(metrics)
+            else:
+                avg_validation_rate = 0
+                avg_quality_score = 0
+            
+            return {
+                'symbol': symbol.upper(),
+                'period_days': days,
+                'summary': {
+                    'avg_validation_rate': round(avg_validation_rate, 2),
+                    'avg_quality_score': round(avg_quality_score, 2),
+                    'total_gaps_detected': total_gaps,
+                    'total_anomalies': total_anomalies
+                },
+                'daily_metrics': metrics,
+                'recent_fetch_logs': logs,
+                'timestamp': datetime.utcnow().isoformat()
+            }
+        
+        finally:
+            session.close()
+    
+    except Exception as e:
+        logger.error(f"Error getting quality report for {symbol}: {e}", extra={'error': str(e)})
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 

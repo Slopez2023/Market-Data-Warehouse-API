@@ -451,3 +451,357 @@ class DatabaseService:
         
         finally:
             session.close()
+    
+    def upsert_market_data_v2(self, data: Dict) -> Dict:
+        """
+        Insert or update enriched market data in market_data_v2 table.
+        Idempotent operation - safe to retry without creating duplicates.
+        
+        Args:
+            data: Dictionary with enriched data including:
+                - symbol, asset_class, timeframe, timestamp (required)
+                - open, high, low, close, volume
+                - computed features (optional)
+                - quality_score, is_validated, validation_notes, etc.
+        
+        Returns:
+            Dict with {'inserted': bool, 'updated': bool, 'record_id': int}
+        """
+        session = self.SessionLocal()
+        
+        try:
+            # Build INSERT ON CONFLICT DO UPDATE statement dynamically
+            # Get all columns from data dict
+            columns = sorted([k for k in data.keys() if data[k] is not None])
+            placeholders = [f":{col}" for col in columns]
+            
+            # Build update clause for existing records
+            update_clause = ", ".join([
+                f"{col} = EXCLUDED.{col}" 
+                for col in columns 
+                if col not in ['symbol', 'asset_class', 'timeframe', 'timestamp', 'revision']
+            ])
+            
+            upsert_stmt = text(f"""
+                INSERT INTO market_data_v2 ({', '.join(columns)})
+                VALUES ({', '.join(placeholders)})
+                ON CONFLICT (symbol, asset_class, timeframe, timestamp, revision) 
+                DO UPDATE SET
+                    {update_clause},
+                    updated_at = NOW()
+                RETURNING id, (xmax::text::int = 0) as inserted
+            """)
+            
+            result = session.execute(upsert_stmt, data).first()
+            session.commit()
+            
+            if result:
+                record_id, inserted = result
+                return {
+                    'inserted': inserted,
+                    'updated': not inserted,
+                    'record_id': record_id
+                }
+            
+            return {'inserted': False, 'updated': False, 'record_id': None}
+        
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Error upserting market_data_v2: {e}")
+            return {'inserted': False, 'updated': False, 'record_id': None}
+        
+        finally:
+            session.close()
+    
+    def upsert_enriched_batch(self, records: List[Dict]) -> Dict:
+        """
+        Batch UPSERT multiple enriched records.
+        Uses COPY for high-performance bulk operations.
+        
+        Args:
+            records: List of enriched data dictionaries
+        
+        Returns:
+            Dict with {'inserted': int, 'updated': int, 'total': int}
+        """
+        if not records:
+            return {'inserted': 0, 'updated': 0, 'total': 0}
+        
+        session = self.SessionLocal()
+        inserted = 0
+        updated = 0
+        
+        try:
+            for record in records:
+                result = self.upsert_market_data_v2(record)
+                if result['inserted']:
+                    inserted += 1
+                elif result['updated']:
+                    updated += 1
+            
+            logger.info(f"Batch upsert: {inserted} inserted, {updated} updated out of {len(records)}")
+            return {'inserted': inserted, 'updated': updated, 'total': len(records)}
+        
+        except Exception as e:
+            logger.error(f"Error in batch upsert: {e}")
+            return {'inserted': inserted, 'updated': updated, 'total': len(records)}
+        
+        finally:
+            session.close()
+    
+    def update_backfill_state(
+        self,
+        symbol: str,
+        asset_class: str,
+        timeframe: str,
+        job_id: str,
+        status: str,
+        last_successful_date: str = None,
+        error_message: str = None
+    ) -> None:
+        """
+        Update backfill state tracking.
+        
+        Args:
+            symbol: Asset symbol
+            asset_class: Asset class
+            timeframe: Timeframe
+            job_id: Backfill job ID
+            status: Status (pending, in_progress, completed, failed)
+            last_successful_date: Last successfully enriched date
+            error_message: Error details if failed
+        """
+        session = self.SessionLocal()
+        
+        try:
+            # Check if record exists
+            existing = session.execute(
+                text("""
+                    SELECT id FROM backfill_state 
+                    WHERE symbol = :symbol 
+                    AND asset_class = :asset_class 
+                    AND timeframe = :timeframe 
+                    AND backfill_job_id = :job_id
+                """),
+                {
+                    'symbol': symbol,
+                    'asset_class': asset_class,
+                    'timeframe': timeframe,
+                    'job_id': job_id
+                }
+            ).first()
+            
+            if existing:
+                # Update existing record
+                update_stmt = text("""
+                    UPDATE backfill_state 
+                    SET status = :status,
+                        last_successful_date = COALESCE(:last_date, last_successful_date),
+                        error_message = :error,
+                        retry_count = CASE WHEN :status = 'failed' THEN retry_count + 1 ELSE retry_count END,
+                        updated_at = NOW()
+                    WHERE id = :id
+                """)
+                
+                session.execute(update_stmt, {
+                    'status': status,
+                    'last_date': last_successful_date,
+                    'error': error_message,
+                    'id': existing[0]
+                })
+            else:
+                # Insert new record
+                insert_stmt = text("""
+                    INSERT INTO backfill_state 
+                    (symbol, asset_class, timeframe, backfill_job_id, status, 
+                     start_date, end_date, last_successful_date, error_message, created_at, updated_at)
+                    VALUES (:symbol, :asset_class, :timeframe, :job_id, :status, 
+                            CURRENT_DATE, CURRENT_DATE, :last_date, :error, NOW(), NOW())
+                """)
+                
+                session.execute(insert_stmt, {
+                    'symbol': symbol,
+                    'asset_class': asset_class,
+                    'timeframe': timeframe,
+                    'job_id': job_id,
+                    'status': status,
+                    'last_date': last_successful_date,
+                    'error': error_message
+                })
+            
+            session.commit()
+            logger.info(f"Updated backfill state: {symbol} {timeframe} -> {status}")
+        
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Error updating backfill state: {e}")
+        
+        finally:
+            session.close()
+    
+    def log_enrichment_fetch(
+        self,
+        symbol: str,
+        asset_class: str,
+        source: str,
+        timeframe: str,
+        records_fetched: int,
+        records_inserted: int,
+        records_updated: int,
+        response_time_ms: int,
+        success: bool,
+        error_details: str = None,
+        api_quota_remaining: int = None
+    ) -> None:
+        """
+        Log data fetch operation from external API.
+        
+        Args:
+            symbol: Asset symbol
+            asset_class: Asset class
+            source: Data source (polygon, binance, yahoo)
+            timeframe: Timeframe
+            records_fetched: Number of records fetched
+            records_inserted: Number inserted
+            records_updated: Number updated
+            response_time_ms: API response time
+            success: Whether fetch succeeded
+            error_details: Error message if failed
+            api_quota_remaining: Remaining API quota
+        """
+        session = self.SessionLocal()
+        
+        try:
+            insert_stmt = text("""
+                INSERT INTO enrichment_fetch_log 
+                (symbol, asset_class, source, timeframe, records_fetched, records_inserted, 
+                 records_updated, fetch_timestamp, source_response_time_ms, success, 
+                 error_details, api_quota_remaining, created_at)
+                VALUES (:symbol, :asset_class, :source, :timeframe, :records_fetched, 
+                        :records_inserted, :records_updated, NOW(), :response_time_ms, 
+                        :success, :error_details, :api_quota_remaining, NOW())
+            """)
+            
+            session.execute(insert_stmt, {
+                'symbol': symbol,
+                'asset_class': asset_class,
+                'source': source,
+                'timeframe': timeframe,
+                'records_fetched': records_fetched,
+                'records_inserted': records_inserted,
+                'records_updated': records_updated,
+                'response_time_ms': response_time_ms,
+                'success': success,
+                'error_details': error_details,
+                'api_quota_remaining': api_quota_remaining
+            })
+            
+            session.commit()
+        
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Error logging enrichment fetch: {e}")
+        
+        finally:
+            session.close()
+    
+    def log_feature_computation(
+        self,
+        symbol: str,
+        asset_class: str,
+        timeframe: str,
+        features_computed: int,
+        computation_time_ms: int,
+        success: bool,
+        missing_fields: List[str] = None,
+        error_details: str = None
+    ) -> None:
+        """
+        Log feature computation operation.
+        
+        Args:
+            symbol: Asset symbol
+            asset_class: Asset class
+            timeframe: Timeframe
+            features_computed: Number of features computed
+            computation_time_ms: Computation time
+            success: Whether computation succeeded
+            missing_fields: List of missing field names
+            error_details: Error message if failed
+        """
+        session = self.SessionLocal()
+        
+        try:
+            insert_stmt = text("""
+                INSERT INTO enrichment_compute_log 
+                (symbol, asset_class, timeframe, computation_timestamp, features_computed, 
+                 computation_time_ms, success, missing_fields, error_details, created_at)
+                VALUES (:symbol, :asset_class, :timeframe, NOW(), :features_computed, 
+                        :computation_time_ms, :success, :missing_fields, :error_details, NOW())
+            """)
+            
+            session.execute(insert_stmt, {
+                'symbol': symbol,
+                'asset_class': asset_class,
+                'timeframe': timeframe,
+                'features_computed': features_computed,
+                'computation_time_ms': computation_time_ms,
+                'success': success,
+                'missing_fields': missing_fields,
+                'error_details': error_details
+            })
+            
+            session.commit()
+        
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Error logging feature computation: {e}")
+        
+        finally:
+            session.close()
+    
+    def get_backfill_status(self, symbol: str, timeframe: str) -> Optional[Dict]:
+        """
+        Get current backfill status for symbol/timeframe.
+        
+        Args:
+            symbol: Asset symbol
+            timeframe: Timeframe
+        
+        Returns:
+            Dict with backfill state or None if not found
+        """
+        session = self.SessionLocal()
+        
+        try:
+            query = text("""
+                SELECT id, backfill_job_id, status, last_successful_date, 
+                       retry_count, error_message, created_at, updated_at
+                FROM backfill_state
+                WHERE symbol = :symbol AND timeframe = :timeframe
+                ORDER BY updated_at DESC
+                LIMIT 1
+            """)
+            
+            result = session.execute(query, {'symbol': symbol, 'timeframe': timeframe}).first()
+            
+            if result:
+                return {
+                    'id': result[0],
+                    'job_id': str(result[1]),
+                    'status': result[2],
+                    'last_successful_date': result[3].isoformat() if result[3] else None,
+                    'retry_count': result[4],
+                    'error_message': result[5],
+                    'created_at': result[6].isoformat() if result[6] else None,
+                    'updated_at': result[7].isoformat() if result[7] else None
+                }
+            
+            return None
+        
+        except Exception as e:
+            logger.error(f"Error getting backfill status: {e}")
+            return None
+        
+        finally:
+            session.close()

@@ -1,0 +1,110 @@
+REPOSITORY CLEANUP - FILES TO DELETE
+====================================
+
+Total: 43 unnecessary files
+
+TESTS (17 files)
+tests/test_phase_1d_endpoints.py
+tests/test_phase_1e_testing.py
+tests/test_phase_1g_scheduler.py
+tests/test_phase_1i_resilience.py
+tests/test_phase_5_data_migration.py
+tests/test_phase_6_3.py
+tests/test_phase_6_4.py
+tests/test_phase_6_5.py
+tests/test_phase2_connection_pool.py
+tests/test_phase2_data_quality.py
+tests/test_phase2_environment.py
+tests/test_phase2_scheduler_retry.py
+tests/api_test_suite.py
+test_crypto_fix.py
+tests/test_free_datasources.py
+scripts/load_test_data.py
+scripts/load_test_runner.py
+
+SCRIPTS - OLD BACKFILL (6 files)
+scripts/backfill_v2.py
+scripts/backfill_enhancements.py
+scripts/backfill_historical.py
+scripts/backfill_prediction_data.py
+BACKFILL_ALL.sh
+BACKFILL_ALL_TIMEFRAMES.sh
+
+SCRIPTS - UTILITIES (4 files)
+scripts/monitor.sh
+scripts/monitor-setup.sh
+scripts/backup.sh
+BUILD_AND_VERIFY.sh
+CHECK_ASSETS.sh
+
+CLIENTS (2 files)
+src/clients/binance_client.py
+src/clients/yahoo_client.py
+
+SERVICES - EXPERIMENTAL (6 files)
+src/services/data_enrichment_service.py
+src/services/enrichment_scheduler.py
+src/services/feature_computation_service.py
+src/services/data_aggregator.py
+src/services/sentiment_service.py
+src/routes/enrichment_ui.py
+
+SERVICES - REDUNDANT/MERGED (3 files)
+src/services/migration_service.py
+src/services/scheduler_retry.py
+src/services/resilience_manager.py
+src/services/data_quality_checker.py
+
+TEMP/LOGS (2 files)
+api.log
+scripts/backup.sh
+
+DOCS - ARCHIVE (2 files)
+scripts/DATA_MATRIX.txt
+scripts/FREE_SOURCES_PLAN.txt
+
+====================================
+CLEANUP COMMAND (safer - moves to archive first):
+
+mkdir -p .archive/deleted_files_backup
+
+# Tests
+mv tests/test_phase*.py .archive/deleted_files_backup/ 2>/dev/null
+mv tests/test_free_datasources.py .archive/deleted_files_backup/ 2>/dev/null
+mv tests/api_test_suite.py .archive/deleted_files_backup/ 2>/dev/null
+mv test_crypto_fix.py .archive/deleted_files_backup/ 2>/dev/null
+mv scripts/load_test*.py .archive/deleted_files_backup/ 2>/dev/null
+
+# Scripts
+mv scripts/backfill_v2.py .archive/deleted_files_backup/ 2>/dev/null
+mv scripts/backfill_enhancements.py .archive/deleted_files_backup/ 2>/dev/null
+mv scripts/backfill_historical.py .archive/deleted_files_backup/ 2>/dev/null
+mv scripts/backfill_prediction_data.py .archive/deleted_files_backup/ 2>/dev/null
+mv scripts/monitor*.sh .archive/deleted_files_backup/ 2>/dev/null
+mv BACKFILL*.sh .archive/deleted_files_backup/ 2>/dev/null
+mv BUILD_AND_VERIFY.sh .archive/deleted_files_backup/ 2>/dev/null
+mv CHECK_ASSETS.sh .archive/deleted_files_backup/ 2>/dev/null
+
+# Clients
+mv src/clients/binance_client.py .archive/deleted_files_backup/ 2>/dev/null
+mv src/clients/yahoo_client.py .archive/deleted_files_backup/ 2>/dev/null
+
+# Services
+mv src/services/data_enrichment_service.py .archive/deleted_files_backup/ 2>/dev/null
+mv src/services/enrichment_scheduler.py .archive/deleted_files_backup/ 2>/dev/null
+mv src/services/feature_computation_service.py .archive/deleted_files_backup/ 2>/dev/null
+mv src/services/data_aggregator.py .archive/deleted_files_backup/ 2>/dev/null
+mv src/services/sentiment_service.py .archive/deleted_files_backup/ 2>/dev/null
+mv src/services/migration_service.py .archive/deleted_files_backup/ 2>/dev/null
+mv src/services/scheduler_retry.py .archive/deleted_files_backup/ 2>/dev/null
+mv src/services/resilience_manager.py .archive/deleted_files_backup/ 2>/dev/null
+mv src/services/data_quality_checker.py .archive/deleted_files_backup/ 2>/dev/null
+
+# Routes
+mv src/routes/enrichment_ui.py .archive/deleted_files_backup/ 2>/dev/null
+
+# Temp/Logs
+mv api.log .archive/deleted_files_backup/ 2>/dev/null
+mv scripts/backup.sh .archive/deleted_files_backup/ 2>/dev/null
+mv scripts/DATA_MATRIX.txt .archive/deleted_files_backup/ 2>/dev/null
+mv scripts/FREE_SOURCES_PLAN.txt .archive/deleted_files_backup/ 2>/dev/null

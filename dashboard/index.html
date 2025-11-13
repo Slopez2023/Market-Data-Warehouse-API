@@ -70,6 +70,151 @@
             </div>
         </section>
 
+        <!-- Enrichment Status Section -->
+        <section class="card">
+            <h2>Enrichment Scheduler</h2>
+            <div class="enrichment-status-grid">
+                <div class="enrichment-status-item">
+                    <label>Status</label>
+                    <div id="enrichment-scheduler-status" class="enrichment-value">--</div>
+                </div>
+                <div class="enrichment-status-item">
+                    <label>Last Run</label>
+                    <div id="enrichment-last-run" class="enrichment-value">--</div>
+                </div>
+                <div class="enrichment-status-item">
+                    <label>Next Run</label>
+                    <div id="enrichment-next-run" class="enrichment-value">--</div>
+                </div>
+                <div class="enrichment-status-item">
+                    <label>Success Rate</label>
+                    <div id="enrichment-success-rate" class="enrichment-value">--%</div>
+                </div>
+                <div class="enrichment-status-item">
+                    <label>Symbols Enriched</label>
+                    <div id="enrichment-symbols-count" class="enrichment-value">--</div>
+                </div>
+                <div class="enrichment-status-item">
+                    <label>Avg Time</label>
+                    <div id="enrichment-avg-time" class="enrichment-value">-- s</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Pipeline Metrics Section -->
+        <section class="card">
+            <h2>Pipeline Metrics</h2>
+            <div class="pipeline-grid">
+                <!-- Fetch Pipeline -->
+                <div class="pipeline-card">
+                    <div class="pipeline-header">Fetch Pipeline</div>
+                    <div class="pipeline-stat">
+                        <span class="pipeline-label">Total Fetches</span>
+                        <span id="fetch-total" class="pipeline-value">--</span>
+                    </div>
+                    <div class="pipeline-stat">
+                        <span class="pipeline-label">Success Rate</span>
+                        <span id="fetch-success-rate" class="pipeline-value">--%</span>
+                    </div>
+                    <div class="pipeline-stat">
+                        <span class="pipeline-label">Avg Response</span>
+                        <span id="fetch-avg-time" class="pipeline-value">-- ms</span>
+                    </div>
+                    <div class="pipeline-stat">
+                        <span class="pipeline-label">Records Fetched</span>
+                        <span id="fetch-records" class="pipeline-value">--</span>
+                    </div>
+                </div>
+
+                <!-- Compute Pipeline -->
+                <div class="pipeline-card">
+                    <div class="pipeline-header">Compute Pipeline</div>
+                    <div class="pipeline-stat">
+                        <span class="pipeline-label">Total Computations</span>
+                        <span id="compute-total" class="pipeline-value">--</span>
+                    </div>
+                    <div class="pipeline-stat">
+                        <span class="pipeline-label">Success Rate</span>
+                        <span id="compute-success-rate" class="pipeline-value">--%</span>
+                    </div>
+                    <div class="pipeline-stat">
+                        <span class="pipeline-label">Avg Time</span>
+                        <span id="compute-avg-time" class="pipeline-value">-- ms</span>
+                    </div>
+                    <div class="pipeline-stat">
+                        <span class="pipeline-label">Features Computed</span>
+                        <span id="compute-features" class="pipeline-value">--</span>
+                    </div>
+                </div>
+
+                <!-- Data Quality -->
+                <div class="pipeline-card">
+                    <div class="pipeline-header">Data Quality</div>
+                    <div class="pipeline-stat">
+                        <span class="pipeline-label">Validation Rate</span>
+                        <span id="quality-validation" class="pipeline-value">--%</span>
+                    </div>
+                    <div class="pipeline-stat">
+                        <span class="pipeline-label">Avg Quality Score</span>
+                        <span id="quality-score" class="pipeline-value">--</span>
+                    </div>
+                    <div class="pipeline-stat">
+                        <span class="pipeline-label">Complete Records</span>
+                        <span id="quality-complete" class="pipeline-value">--%</span>
+                    </div>
+                    <div class="pipeline-stat">
+                        <span class="pipeline-label">Healthy Symbols</span>
+                        <span id="quality-healthy" class="pipeline-value">--</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Job Queue Section -->
+        <section class="card">
+            <h2>Recent Enrichment Jobs</h2>
+            <div class="job-queue-table">
+                <table id="job-table" class="job-table">
+                    <thead>
+                        <tr>
+                            <th>Symbol</th>
+                            <th>Status</th>
+                            <th>Completion Time</th>
+                            <th>Records Processed</th>
+                            <th>Success</th>
+                        </tr>
+                    </thead>
+                    <tbody id="job-tbody">
+                        <tr><td colspan="5" style="text-align: center; color: var(--text-secondary);">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <div id="job-count" class="job-count"></div>
+        </section>
+
+        <!-- Health Status Section -->
+        <section class="card">
+            <h2>System Health</h2>
+            <div class="health-grid">
+                <div class="health-card">
+                    <div class="health-header">Scheduler</div>
+                    <div id="health-scheduler" class="health-status">--</div>
+                </div>
+                <div class="health-card">
+                    <div class="health-header">Database</div>
+                    <div id="health-database" class="health-status">--</div>
+                </div>
+                <div class="health-card">
+                    <div class="health-header">API Connectivity</div>
+                    <div id="health-api" class="health-status">--</div>
+                </div>
+                <div class="health-card">
+                    <div class="health-header">24h Failures</div>
+                    <div id="health-failures" class="health-status">--</div>
+                </div>
+            </div>
+        </section>
+
         <!-- Data Quality - Symbol Table -->
         <section class="card">
             <div class="symbol-section-header">

@@ -12,6 +12,7 @@ import asyncpg
 from src.clients.polygon_client import PolygonClient
 from src.services.validation_service import ValidationService
 from src.services.database_service import DatabaseService
+from src.services.data_enrichment_service import DataEnrichmentService
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,11 @@ class AutoBackfillScheduler:
         database_url: str,
         symbols: List[str] = None,
         schedule_hour: int = 2,
-        schedule_minute: int = 0
+        schedule_minute: int = 0,
+        config=None,
+        enrichment_enabled: bool = False,
+        enrichment_hour: int = 1,
+        enrichment_minute: int = 30
     ):
         """
         Initialize scheduler.
@@ -48,6 +53,10 @@ class AutoBackfillScheduler:
             symbols: List of symbols to backfill (loaded from DB if not provided)
             schedule_hour: UTC hour to run backfill (0-23, default 2)
             schedule_minute: Minute to run backfill (0-59, default 0)
+            config: AppConfig instance for enrichment service
+            enrichment_enabled: Whether to enable data enrichment pipeline
+            enrichment_hour: UTC hour to run enrichment (0-23, default 1)
+            enrichment_minute: Minute to run enrichment (0-59, default 30)
         """
         self.polygon_client = PolygonClient(polygon_api_key)
         self.db_service = DatabaseService(database_url)
@@ -60,6 +69,13 @@ class AutoBackfillScheduler:
         
         self.schedule_hour = schedule_hour
         self.schedule_minute = schedule_minute
+        
+        # Enrichment service setup
+        self.enrichment_enabled = enrichment_enabled
+        self.enrichment_hour = enrichment_hour
+        self.enrichment_minute = enrichment_minute
+        self.config = config
+        self.enrichment_service: Optional[DataEnrichmentService] = None
         
         # APScheduler instance
         self.scheduler = AsyncIOScheduler()
@@ -88,6 +104,18 @@ class AutoBackfillScheduler:
             id="daily_backfill",
             name="Daily OHLCV Backfill"
         )
+        
+        # Add enrichment job if enabled
+        if self.enrichment_enabled:
+            self._setup_enrichment_service()
+            enrichment_trigger = CronTrigger(hour=self.enrichment_hour, minute=self.enrichment_minute)
+            self.scheduler.add_job(
+                self._enrichment_job,
+                trigger=enrichment_trigger,
+                id="daily_enrichment",
+                name="Daily Data Enrichment"
+            )
+            logger.info(f"Enrichment pipeline scheduled for {self.enrichment_hour:02d}:{self.enrichment_minute:02d} UTC daily")
         
         self.scheduler.start()
         logger.info(f"Scheduler started. Backfill scheduled for {self.schedule_hour:02d}:{self.schedule_minute:02d} UTC daily")
@@ -410,6 +438,113 @@ class AutoBackfillScheduler:
         except Exception as e:
             logger.error(f"Error in _fetch_and_insert for {symbol}: {e}")
             raise
+    
+    def _setup_enrichment_service(self) -> None:
+        """Initialize the data enrichment service"""
+        try:
+            if not self.config:
+                logger.error("Cannot initialize enrichment service: config not provided")
+                return
+            
+            self.enrichment_service = DataEnrichmentService(
+                db_service=self.db_service,
+                config=self.config
+            )
+            logger.info("Data enrichment service initialized")
+        except Exception as e:
+            logger.error(f"Failed to initialize enrichment service: {e}")
+            self.enrichment_enabled = False
+    
+    async def _enrichment_job(self) -> None:
+        """
+        Main enrichment job - runs daily.
+        
+        Enriches all active symbols with computed features and stores in market_data_v2.
+        Runs after backfill completes to ensure data is fresh.
+        """
+        if not self.enrichment_service:
+            logger.error("Enrichment service not initialized")
+            return
+        
+        # Reload symbols from database at start of each enrichment
+        try:
+            self.symbols = await self._load_symbols_from_db()
+            if not self.symbols:
+                logger.warning("No active symbols found in database for enrichment")
+                return
+        except Exception as e:
+            logger.error(f"Failed to reload symbols for enrichment: {e}")
+            return
+        
+        logger.info(f"Starting enrichment job for {len(self.symbols)} symbols")
+        enrichment_start = datetime.utcnow()
+        
+        results = {
+            "success": 0,
+            "failed": 0,
+            "total_records_inserted": 0,
+            "total_records_updated": 0,
+            "timestamp": enrichment_start.isoformat(),
+            "symbols_processed": []
+        }
+        
+        for symbol, asset_class, timeframes in self.symbols:
+            try:
+                # Calculate date range for enrichment (last 365 days)
+                end_date = datetime.utcnow()
+                start_date = end_date - timedelta(days=365)
+                
+                # Run enrichment for all configured timeframes
+                enrichment_result = await self.enrichment_service.enrich_asset(
+                    symbol=symbol,
+                    asset_class=asset_class,
+                    timeframes=timeframes,
+                    start_date=start_date,
+                    end_date=end_date
+                )
+                
+                if enrichment_result['success']:
+                    results["success"] += 1
+                    results["total_records_inserted"] += enrichment_result['total_records_inserted']
+                    results["total_records_updated"] += enrichment_result['total_records_updated']
+                    
+                    results["symbols_processed"].append({
+                        "symbol": symbol,
+                        "asset_class": asset_class,
+                        "timeframes": timeframes,
+                        "inserted": enrichment_result['total_records_inserted'],
+                        "updated": enrichment_result['total_records_updated'],
+                        "status": "completed"
+                    })
+                    logger.info(f"Enrichment completed for {symbol}: {enrichment_result['total_records_inserted']} inserted, {enrichment_result['total_records_updated']} updated")
+                else:
+                    results["failed"] += 1
+                    results["symbols_processed"].append({
+                        "symbol": symbol,
+                        "asset_class": asset_class,
+                        "timeframes": timeframes,
+                        "status": "failed",
+                        "error": enrichment_result.get('error', 'Unknown error')
+                    })
+                    logger.error(f"Enrichment failed for {symbol}: {enrichment_result.get('error')}")
+            
+            except Exception as e:
+                logger.error(f"Enrichment exception for {symbol}: {e}")
+                results["failed"] += 1
+                results["symbols_processed"].append({
+                    "symbol": symbol,
+                    "asset_class": asset_class,
+                    "timeframes": timeframes,
+                    "status": "failed",
+                    "error": str(e)
+                })
+        
+        enrichment_duration = (datetime.utcnow() - enrichment_start).total_seconds()
+        logger.info(
+            f"Enrichment job complete: {results['success']} symbols successful, "
+            f"{results['failed']} failed, {results['total_records_inserted']} records inserted, "
+            f"{results['total_records_updated']} updated in {enrichment_duration:.1f}s"
+        )
 
 
 def get_last_backfill_result() -> Optional[Dict]:
