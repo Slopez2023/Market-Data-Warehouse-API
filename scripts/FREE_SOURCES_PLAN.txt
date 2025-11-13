@@ -1,0 +1,104 @@
+FREE DATA SOURCES TESTING PLAN
+==============================
+
+SCRIPT: test_free_datasources.py
+
+SOURCES & DATA TYPES:
+=====================================
+
+1. YFINANCE (Already have it)
+   ├─ News: Company news articles
+   ├─ Balance Sheet: Assets, Liabilities, Equity (quarterly/annual)
+   ├─ Income Statement: Revenue, Expenses, Profits (quarterly/annual)
+   ├─ Dividends: Historical dividend payments
+   ├─ Stock Splits: Historical splits
+   ├─ Fundamentals: PE Ratio, Market Cap, Dividend Yield, Beta, etc
+   └─ Options: Call/Put chains with Greeks, IV, implied volatility
+
+2. ALPHA VANTAGE (Free tier limited, demo key works)
+   ├─ Intraday: 5-min/15-min/30-min/60-min bars
+   ├─ Daily: Daily OHLCV
+   ├─ MACD: Technical indicator
+   ├─ RSI: Technical indicator
+   └─ Bollinger Bands: Technical indicator
+   [Rate limit: 5 calls/min on free tier]
+
+3. FRED API (Federal Reserve Economic Data)
+   ├─ GDP: Quarterly GDP data
+   ├─ Unemployment Rate: Monthly unemployment
+   ├─ Inflation (CPI): Consumer price index
+   ├─ Fed Funds Rate: Interest rates
+   └─ 500,000+ other economic series available
+   [No rate limit for free tier]
+
+4. COINGECKO (Cryptocurrency data, 100% free)
+   ├─ Simple Price: Current prices with market cap, volume
+   ├─ Market Chart: Historical prices, volumes, market cap
+   ├─ Top 100: Market data for top 100 cryptos
+   └─ Global Data: Total market cap, Bitcoin dominance
+   [No API key needed, no rate limits]
+
+5. FINNHUB (Free tier available)
+   ├─ Company Profile: Name, IPO date, sector, industry
+   ├─ Quote: Current price, change, volume
+   ├─ News: Latest company news
+   └─ Peers: Competitor companies
+   [Rate limit: 60 calls/min on free tier]
+
+6. IEX CLOUD (Limited free tier)
+   ├─ Quote: Current price and basic data
+   ├─ Company: Company information
+   └─ Stats: Company statistics
+   [Free tier very limited - 100 symbols, legacy endpoints]
+
+7. POLYGON.IO (Free tier available)
+   ├─ Daily Bars: OHLCV data
+   ├─ Technical Indicators: SMA, EMA, etc
+   ├─ News: Stock news aggregation
+   └─ Options: Options chains and Greeks
+   [Rate limit varies by tier]
+
+
+WHAT THIS TESTS
+=====================================
+
+✓ Can we connect to each source?
+✓ What endpoints are actually available?
+✓ What data types does each source provide?
+✓ Beyond OHLCV: Fundamentals, Technical, News, Economic data
+✓ API key requirements (which need auth)
+✓ Rate limits and response times
+✓ Data structure and format
+
+
+HOW TO RUN
+=====================================
+
+python scripts/test_free_datasources.py
+
+Requirements:
+- yfinance (already installed)
+- aiohttp (already installed)
+- API keys in .env (optional):
+  ALPHA_VANTAGE_KEY=
+  FRED_API_KEY=
+  FINNHUB_API_KEY=
+  IEX_CLOUD_TOKEN=
+  POLYGON_API_KEY=
+
+
+OUTPUT
+=====================================
+
+Prints results to console + saves JSON report with timestamp:
+datasource_test_results_YYYYMMDD_HHMMSS.json
+
+
+NEXT STEPS AFTER TESTING
+=====================================
+
+1. Choose best sources for your use case
+2. Add API key integrations
+3. Decide what data to persist to database
+4. Create backfill scripts for new data types
+5. Add endpoints to API to serve the data

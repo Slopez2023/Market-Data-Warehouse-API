@@ -1,0 +1,82 @@
+DATA TYPE MATRIX - Which Source Gets What
+============================================
+
+DATA TYPE                    | yfinance | Alpha V | Finnhub | Polygon | IEX | FRED | CoinGecko
+---------------------------|----------|---------|---------|---------|-----|------|----------
+Dividends                   |    ✓     |         |         |    ✓    |     |      |
+Stock Splits                |    ✓     |         |         |    ✓    |     |      |
+News Articles               |    ✓     |    ✓    |    ✓    |    ✓    |     |      |
+Earnings Announcements      |    ✓     |         |    ✓    |         |     |      |
+Analyst Ratings             |    ✓     |         |    ✓    |         |     |      |
+Ticker Details (company)    |    ✓     |         |    ✓    |         |  ✓  |      |
+Options Chain & IV          |    ✓     |         |         |    ✓    |     |      |
+Market Holidays             |    ✓     |         |         |         |  ✓  |      |
+Market Status               |    ✓     |         |         |         |     |      |
+Real-time Quotes/Trades     |    ✓     |    ✓    |    ✓    |    ✓    |  ✓  |      |
+Balance Sheet               |    ✓     |         |         |         |     |      |
+Income Statement            |    ✓     |         |         |         |     |      |
+Cash Flow Statement         |    ✓     |         |         |         |     |      |
+Key Metrics (PE, PB, etc)   |    ✓     |         |         |         |  ✓  |      |
+Economic Indicators         |          |         |         |         |     |  ✓   |
+Crypto Market Data          |          |         |         |         |     |      |    ✓
+
+
+BEST SOURCE FOR EACH:
+======================
+
+Dividends                   → yfinance (simple), Polygon (detailed)
+Stock Splits                → yfinance (simple), Polygon (detailed)
+News Articles               → Finnhub (structured) or Polygon (volume)
+Earnings Announcements      → yfinance (basic) or Finnhub (detailed)
+Analyst Ratings             → Finnhub (free tier has some)
+Ticker Details              → yfinance or Finnhub
+Options Chain & IV          → yfinance (full chain + Greeks)
+Market Holidays             → yfinance + IEX Cloud backup
+Market Status               → yfinance (market open/closed)
+Real-time Quotes/Trades     → Alpha Vantage (intraday), Finnhub, Polygon
+
+
+RECOMMENDATION BY USE CASE:
+============================
+
+MINIMAL SETUP (Just stocks):
+- yfinance: Everything except real-time quotes
+- Add Alpha Vantage: For real-time intraday data
+- Cost: FREE (both have free tiers)
+
+COMPREHENSIVE (Stocks + Analysis):
+- yfinance: Core data + options
+- Finnhub: Better earnings/analyst data
+- Polygon: Options detailed + technical indicators
+- Cost: FREE to $20/month depending on volume
+
+FULL MARKET (Stocks + Crypto + Economics):
+- yfinance: Stocks
+- CoinGecko: Crypto (no auth needed!)
+- FRED: Economic indicators
+- Finnhub or Polygon: News/fundamentals
+- Cost: MOSTLY FREE (only Polygon might have small cost)
+
+
+QUICK START RECOMMENDATIONS:
+============================
+
+OPTION A: Bootstrap with yfinance only
+  $ pip install yfinance
+  → Gets you: dividends, splits, news, earnings, ratings, company info, options, market status
+  
+OPTION B: Add real-time coverage
+  $ pip install yfinance alpha_vantage
+  → Add Alpha Vantage API key for intraday
+  
+OPTION C: Add crypto support
+  $ pip install yfinance coingecko
+  → Get crypto market data (no API key needed!)
+  
+OPTION D: Production quality (all free APIs)
+  yfinance + Finnhub + Polygon + CoinGecko
+  → Get API keys for Finnhub & Polygon
+  → Query yfinance for stocks (free)
+  → Query CoinGecko for crypto (free)
+  → Use Finnhub/Polygon as backups & detailed data
+
