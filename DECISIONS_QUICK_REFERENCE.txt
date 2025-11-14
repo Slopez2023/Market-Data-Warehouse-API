@@ -1,0 +1,176 @@
+================================================================================
+DASHBOARD UX IMPROVEMENT - 5 CORE DECISIONS (APPROVED)
+================================================================================
+Date: November 14, 2025
+Status: ✓ APPROVED
+
+================================================================================
+DECISION 1: SCOPE APPROACH
+================================================================================
+✓ CHOSEN: Evolutionary redesign (not full rewrite)
+
+Why:
+- Medium effort (2-3 days work)
+- High immediate impact (80% improvement)
+- Maintains all existing functionality
+- Can iterate based on feedback
+
+Alternative rejected:
+- Full redesign (high effort, overkill for current needs)
+
+================================================================================
+DECISION 2: INFORMATION HIERARCHY
+================================================================================
+✓ REORGANIZE SECTIONS INTO 6 TIERS:
+
+TIER 1: STATUS & ALERTS
+  └─ System health, critical alerts only
+
+TIER 2: QUICK ACTIONS
+  └─ Refresh, Manual Backfill, Admin Panel, Docs
+
+TIER 3: SYMBOL MANAGEMENT
+  └─ Search + Filter + Bulk Selection + Backfill/Enrich buttons
+
+TIER 4: SYMBOL DETAIL MODAL
+  └─ Click symbol to see details and quick actions
+
+TIER 5: MONITORING (collapsible)
+  └─ Enrichment Status, Pipeline Metrics, Recent Jobs, System Health
+
+TIER 6: ADMIN (collapsible)
+  └─ Admin Control Panel, System Resources, Test Suite
+
+================================================================================
+DECISION 3: THREE-PHASE IMPLEMENTATION
+================================================================================
+✓ PHASES:
+
+Phase 1 (Days 1-2, 4-6 hours)
+  → Reorganize HTML/CSS structure
+  → Fix symbol table (remove Action column, make clickable)
+  → Add collapsible sections
+  → Simplify status display
+
+Phase 2 (Days 3-4, 6-8 hours)
+  → Add checkbox selection system
+  → Build bulk action modals (backfill, enrich)
+  → Create admin control panel
+  → API integration
+
+Phase 3 (Days 5-7, 6-8 hours)
+  → Keyboard shortcuts (?, R, S, B, E, ESC)
+  → Empty states with helpful messages
+  → Modal enhancements
+  → Full WCAG AA accessibility
+
+================================================================================
+DECISION 4: FEATURE SCOPE
+================================================================================
+✓ WHAT USERS CAN DO (Priority order):
+
+1. See system status at a glance
+2. Find symbols quickly (search + filter)
+3. Click symbol to see details
+4. Select multiple symbols
+5. Backfill selected symbols (with date range)
+6. Trigger re-enrichment for selected symbols
+7. Manually start/stop scheduler
+8. View bulk operation progress
+9. Use keyboard shortcuts
+
+✗ EXPLICITLY OUT OF SCOPE (for now):
+
+- Delete symbols (too risky)
+- Export data (nice-to-have)
+- Authentication (trusted environment)
+- Real-time WebSocket updates (phase later)
+
+================================================================================
+DECISION 5: BACKEND API REQUIREMENTS
+================================================================================
+✓ REQUIRED (verify before Phase 2):
+
+POST /api/v1/backfill
+  body: { symbols: ["AAPL"], start_date: "2025-01-01", end_date: "2025-11-14" }
+  returns: { job_id: "uuid", status: "queued", symbols_count: 1 }
+
+POST /api/v1/enrich
+  body: { symbols: ["AAPL"], timeframe: "1h" }
+  returns: { job_id: "uuid", status: "queued", symbols_count: 1 }
+
+POST /api/v1/scheduler/start
+  returns: { status: "started" }
+
+POST /api/v1/scheduler/stop
+  returns: { status: "stopped" }
+
+✓ OPTIONAL (nice-to-have):
+
+POST /api/v1/cache/clear
+POST /api/v1/database/vacuum
+POST /api/v1/database/reindex
+
+Plan if APIs don't exist:
+  → Mock them (return success responses)
+  → UI works with stubs while backend is built in parallel
+
+================================================================================
+FILES TO REFERENCE
+================================================================================
+
+1. START_HERE_DASHBOARD_IMPLEMENTATION.md
+   → Quick startup guide (5 min read)
+
+2. IMPLEMENTATION_DECISIONS.md
+   → Why each decision was made (5 min read)
+
+3. DASHBOARD_UX_IMPROVEMENT_PLAN.md
+   → Complete step-by-step guide with code samples (reference during work)
+   → Phase 1, 2, 3 with verification checklists
+   → Best practices, testing strategy, troubleshooting
+
+================================================================================
+NEXT ACTION
+================================================================================
+
+In new chat, do this:
+
+1. Copy paste:
+   "I'm implementing the dashboard UX improvements. 
+    Reference: DASHBOARD_UX_IMPROVEMENT_PLAN.md
+    I'm ready to start Phase 1. Help me implement step-by-step."
+
+2. Follow the step-by-step instructions
+
+3. Use verification checklist when done with phase
+
+4. Move to Phase 2 (repeat above)
+
+5. Move to Phase 3 (repeat above)
+
+Done!
+
+================================================================================
+SUMMARY
+================================================================================
+
+You've approved:
+  ✓ 5 strategic decisions
+  ✓ 3-phase implementation plan
+  ✓ Complete code documentation
+  ✓ Testing strategy
+  ✓ Accessibility requirements
+  ✓ Best practices guide
+
+All documented in one master file:
+  DASHBOARD_UX_IMPROVEMENT_PLAN.md
+
+Ready to implement?
+  → Open new chat
+  → Reference the master document
+  → Follow step-by-step
+  → Use checklists
+  → Done!
+
+================================================================================

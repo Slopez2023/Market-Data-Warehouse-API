@@ -27,8 +27,8 @@ class TestTimeframeValidation:
         assert len(ALLOWED_TIMEFRAMES) > 0
     
     def test_all_required_timeframes_present(self):
-        """Verify all 7 timeframes are allowed"""
-        required = ['5m', '15m', '30m', '1h', '4h', '1d', '1w']
+        """Verify all 8 timeframes are allowed"""
+        required = ['1m', '5m', '15m', '30m', '1h', '4h', '1d', '1w']
         for tf in required:
             assert tf in ALLOWED_TIMEFRAMES, f"Timeframe {tf} not in ALLOWED_TIMEFRAMES"
     
@@ -85,7 +85,7 @@ class TestOHLCVDataModel:
                 volume=1000000
             )
     
-    @pytest.mark.parametrize("timeframe", ['5m', '15m', '30m', '1h', '4h', '1d', '1w'])
+    @pytest.mark.parametrize("timeframe", ['1m', '5m', '15m', '30m', '1h', '4h', '1d', '1w'])
     def test_ohlcv_data_all_valid_timeframes(self, timeframe):
         """Test OHLCVData accepts all valid timeframes"""
         data = OHLCVData(
@@ -132,8 +132,8 @@ class TestUpdateSymbolTimeframesRequest:
     
     @pytest.mark.parametrize("timeframes", [
         ["1h", "1d"],
-        ["5m", "15m", "30m", "1h", "4h", "1d", "1w"],
-        ["1d"],
+        ["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w"],
+        ["1m", "1d"],
         ["1w"]
     ])
     def test_valid_timeframe_combinations(self, timeframes):

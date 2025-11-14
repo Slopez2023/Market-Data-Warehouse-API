@@ -8,12 +8,13 @@
 </head>
 <body>
     <div class="container">
+        <!-- TIER 1: STATUS & ALERTS -->
         <!-- Header -->
         <header class="header">
             <div class="header-content">
                 <div class="header-title">
                     <h1>Market Data Dashboard</h1>
-                    <p class="subtitle">Real-time monitoring & system health</p>
+                    <p class="subtitle">Real-time monitoring & control center</p>
                 </div>
                 <div class="header-right">
                     <div id="status-badge" class="status-badge healthy">● Healthy</div>
@@ -25,198 +26,32 @@
         <!-- Alerts Section -->
         <section id="alerts" class="alerts"></section>
 
-        <!-- Key Metrics Grid -->
-        <section class="metrics-grid">
-            <!-- API Health -->
-            <div class="metric-card">
-                <div class="metric-label">API Status</div>
-                <div id="api-status" class="metric-value">--</div>
-                <div id="response-time" class="metric-subtext">Response: -- ms</div>
-            </div>
-
-            <!-- Symbols Available -->
-            <div class="metric-card">
-                <div class="metric-label">Symbols Loaded</div>
-                <div id="symbols-count" class="metric-value">--</div>
-                <div class="metric-subtext">Active symbols</div>
-            </div>
-
-            <!-- Total Records -->
-            <div class="metric-card">
-                <div class="metric-label">Total Records</div>
-                <div id="total-records" class="metric-value">--</div>
-                <div class="metric-subtext">in database</div>
-            </div>
-
-            <!-- Validation Rate -->
-            <div class="metric-card">
-                <div class="metric-label">Validation Rate</div>
-                <div id="validation-rate" class="metric-value">--%</div>
-                <div class="metric-subtext">data quality</div>
-            </div>
-
-            <!-- Latest Data -->
-            <div class="metric-card">
-                <div class="metric-label">Latest Data</div>
-                <div id="latest-data" class="metric-value">--</div>
-                <div class="metric-subtext">most recent</div>
-            </div>
-
-            <!-- Scheduler Status -->
-            <div class="metric-card">
-                <div class="metric-label">Scheduler</div>
-                <div id="scheduler-status" class="metric-value">--</div>
-                <div class="metric-subtext">auto-backfill 2 AM UTC</div>
-            </div>
-        </section>
-
-        <!-- Enrichment Status Section -->
-        <section class="card">
-            <h2>Enrichment Scheduler</h2>
-            <div class="enrichment-status-grid">
-                <div class="enrichment-status-item">
-                    <label>Status</label>
-                    <div id="enrichment-scheduler-status" class="enrichment-value">--</div>
-                </div>
-                <div class="enrichment-status-item">
-                    <label>Last Run</label>
-                    <div id="enrichment-last-run" class="enrichment-value">--</div>
-                </div>
-                <div class="enrichment-status-item">
-                    <label>Next Run</label>
-                    <div id="enrichment-next-run" class="enrichment-value">--</div>
-                </div>
-                <div class="enrichment-status-item">
-                    <label>Success Rate</label>
-                    <div id="enrichment-success-rate" class="enrichment-value">--%</div>
-                </div>
-                <div class="enrichment-status-item">
-                    <label>Symbols Enriched</label>
-                    <div id="enrichment-symbols-count" class="enrichment-value">--</div>
-                </div>
-                <div class="enrichment-status-item">
-                    <label>Avg Time</label>
-                    <div id="enrichment-avg-time" class="enrichment-value">-- s</div>
+        <!-- Simplified Status Summary -->
+        <section class="status-summary">
+            <div class="status-header">
+                <div class="status-badge-large" id="overall-status">🟢 Healthy</div>
+                <div class="status-details">
+                    <p><strong>Response Time</strong>: <span id="response-time">-- ms</span></p>
+                    <p><strong>Records</strong>: <span id="total-records">--</span></p>
+                    <p><strong>Quality</strong>: <span id="validation-rate">--%</span></p>
                 </div>
             </div>
         </section>
 
-        <!-- Pipeline Metrics Section -->
-        <section class="card">
-            <h2>Pipeline Metrics</h2>
-            <div class="pipeline-grid">
-                <!-- Fetch Pipeline -->
-                <div class="pipeline-card">
-                    <div class="pipeline-header">Fetch Pipeline</div>
-                    <div class="pipeline-stat">
-                        <span class="pipeline-label">Total Fetches</span>
-                        <span id="fetch-total" class="pipeline-value">--</span>
-                    </div>
-                    <div class="pipeline-stat">
-                        <span class="pipeline-label">Success Rate</span>
-                        <span id="fetch-success-rate" class="pipeline-value">--%</span>
-                    </div>
-                    <div class="pipeline-stat">
-                        <span class="pipeline-label">Avg Response</span>
-                        <span id="fetch-avg-time" class="pipeline-value">-- ms</span>
-                    </div>
-                    <div class="pipeline-stat">
-                        <span class="pipeline-label">Records Fetched</span>
-                        <span id="fetch-records" class="pipeline-value">--</span>
-                    </div>
-                </div>
-
-                <!-- Compute Pipeline -->
-                <div class="pipeline-card">
-                    <div class="pipeline-header">Compute Pipeline</div>
-                    <div class="pipeline-stat">
-                        <span class="pipeline-label">Total Computations</span>
-                        <span id="compute-total" class="pipeline-value">--</span>
-                    </div>
-                    <div class="pipeline-stat">
-                        <span class="pipeline-label">Success Rate</span>
-                        <span id="compute-success-rate" class="pipeline-value">--%</span>
-                    </div>
-                    <div class="pipeline-stat">
-                        <span class="pipeline-label">Avg Time</span>
-                        <span id="compute-avg-time" class="pipeline-value">-- ms</span>
-                    </div>
-                    <div class="pipeline-stat">
-                        <span class="pipeline-label">Features Computed</span>
-                        <span id="compute-features" class="pipeline-value">--</span>
-                    </div>
-                </div>
-
-                <!-- Data Quality -->
-                <div class="pipeline-card">
-                    <div class="pipeline-header">Data Quality</div>
-                    <div class="pipeline-stat">
-                        <span class="pipeline-label">Validation Rate</span>
-                        <span id="quality-validation" class="pipeline-value">--%</span>
-                    </div>
-                    <div class="pipeline-stat">
-                        <span class="pipeline-label">Avg Quality Score</span>
-                        <span id="quality-score" class="pipeline-value">--</span>
-                    </div>
-                    <div class="pipeline-stat">
-                        <span class="pipeline-label">Complete Records</span>
-                        <span id="quality-complete" class="pipeline-value">--%</span>
-                    </div>
-                    <div class="pipeline-stat">
-                        <span class="pipeline-label">Healthy Symbols</span>
-                        <span id="quality-healthy" class="pipeline-value">--</span>
-                    </div>
-                </div>
+        <!-- TIER 2: ACTIONS & SYMBOL MANAGEMENT -->
+        <!-- Quick Actions Bar -->
+        <section class="quick-actions-bar">
+            <h2>Quick Actions</h2>
+            <div class="action-buttons">
+                <button class="btn btn-primary" onclick="refreshDashboard()">Refresh Now</button>
+                <button class="btn btn-secondary" onclick="triggerManualBackfill()">Manual Backfill...</button>
+                <button class="btn btn-secondary" onclick="viewAdminPanel()">Admin Panel</button>
+                <button class="btn btn-secondary" onclick="viewDocs()">API Docs</button>
             </div>
         </section>
 
-        <!-- Job Queue Section -->
-        <section class="card">
-            <h2>Recent Enrichment Jobs</h2>
-            <div class="job-queue-table">
-                <table id="job-table" class="job-table">
-                    <thead>
-                        <tr>
-                            <th>Symbol</th>
-                            <th>Status</th>
-                            <th>Completion Time</th>
-                            <th>Records Processed</th>
-                            <th>Success</th>
-                        </tr>
-                    </thead>
-                    <tbody id="job-tbody">
-                        <tr><td colspan="5" style="text-align: center; color: var(--text-secondary);">Loading...</td></tr>
-                    </tbody>
-                </table>
-            </div>
-            <div id="job-count" class="job-count"></div>
-        </section>
-
-        <!-- Health Status Section -->
-        <section class="card">
-            <h2>System Health</h2>
-            <div class="health-grid">
-                <div class="health-card">
-                    <div class="health-header">Scheduler</div>
-                    <div id="health-scheduler" class="health-status">--</div>
-                </div>
-                <div class="health-card">
-                    <div class="health-header">Database</div>
-                    <div id="health-database" class="health-status">--</div>
-                </div>
-                <div class="health-card">
-                    <div class="health-header">API Connectivity</div>
-                    <div id="health-api" class="health-status">--</div>
-                </div>
-                <div class="health-card">
-                    <div class="health-header">24h Failures</div>
-                    <div id="health-failures" class="health-status">--</div>
-                </div>
-            </div>
-        </section>
-
-        <!-- Data Quality - Symbol Table -->
-        <section class="card">
+        <!-- Symbol Management Section -->
+        <section class="symbol-management">
             <div class="symbol-section-header">
                 <h2>Symbol Quality & Status</h2>
                 <div class="symbol-controls">
@@ -235,9 +70,24 @@
                 </div>
             </div>
             
+            <!-- Selection Toolbar -->
+            <div class="symbol-selection-toolbar" id="selection-toolbar" style="display: none;">
+                <div class="toolbar-left">
+                    <span id="selection-count">0 symbols selected</span>
+                </div>
+                <div class="toolbar-right">
+                    <button class="btn btn-sm btn-secondary" onclick="clearSelection()">Clear</button>
+                    <button class="btn btn-sm btn-primary" onclick="openBackfillModal()">Backfill Selected</button>
+                    <button class="btn btn-sm btn-primary" onclick="openEnrichModal()">Re-Enrich Selected</button>
+                </div>
+            </div>
+            
             <table id="symbol-table" class="symbol-table">
                 <thead>
                     <tr>
+                        <th style="width: 40px;">
+                            <input type="checkbox" id="select-all-symbols" onchange="toggleSelectAll(this)">
+                        </th>
                         <th onclick="sortTable('symbol')">Symbol</th>
                         <th onclick="sortTable('records')">Records</th>
                         <th onclick="sortTable('validation_rate')">Validation %</th>
@@ -248,53 +98,351 @@
                     </tr>
                 </thead>
                 <tbody id="symbol-tbody">
-                    <tr><td colspan="7" style="text-align: center; color: var(--text-secondary);">Loading...</td></tr>
+                    <tr><td colspan="8" style="text-align: center; color: var(--text-secondary);">Loading...</td></tr>
                 </tbody>
             </table>
             
             <div id="symbol-count" class="symbol-count"></div>
         </section>
 
-        <!-- System Resources -->
-        <section class="card">
-            <h2>System Resources</h2>
-            <div class="resource-grid">
-                <div class="resource-item">
-                    <label>Database Size</label>
-                    <div id="db-size" class="resource-value">-- MB</div>
+        <!-- Asset Details Modal -->
+        <div id="asset-modal" class="modal" style="display: none;">
+            <div class="modal-overlay" onclick="closeAssetModal()"></div>
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 id="modal-symbol">--</h2>
+                    <button class="modal-close" onclick="closeAssetModal()">×</button>
                 </div>
-                <div class="resource-item">
-                    <label>Data Age</label>
-                    <div id="data-age" class="resource-value">-- hours</div>
+
+                <div class="asset-tabs">
+                    <button class="asset-tab-btn active" onclick="switchAssetTab('overview')">Overview</button>
+                    <button class="asset-tab-btn" onclick="switchAssetTab('candles')">Candle Data</button>
+                    <button class="asset-tab-btn" onclick="switchAssetTab('enrichment')">Enrichment</button>
                 </div>
-                <div class="resource-item">
-                    <label>Gap Detection</label>
-                    <div id="gap-count" class="resource-value">-- records</div>
+
+                <!-- Overview Tab -->
+                <div id="tab-overview" class="asset-tab-content active">
+                    <div class="overview-grid" id="overview-grid"></div>
+                    <div class="timeframes-section">
+                        <h4>Records by Timeframe</h4>
+                        <table class="timeframes-table">
+                            <thead>
+                                <tr>
+                                    <th>Timeframe</th>
+                                    <th>Records</th>
+                                    <th>Latest</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="timeframes-tbody"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Candles Tab -->
+                <div id="tab-candles" class="asset-tab-content" style="display: none;">
+                    <div class="candles-controls">
+                        <select id="candle-timeframe" class="timeframe-select" onchange="loadCandleData(currentSymbol, this.value)">
+                            <option value="1m">1 Minute</option>
+                            <option value="5m">5 Minutes</option>
+                            <option value="15m">15 Minutes</option>
+                            <option value="1h" selected>1 Hour</option>
+                            <option value="1d">Daily</option>
+                        </select>
+                        <span id="candle-count">Loading...</span>
+                        <button class="btn btn-sm btn-secondary" onclick="loadMoreCandles(currentSymbol)">Load More</button>
+                    </div>
+                    <table class="candles-table">
+                        <thead>
+                            <tr>
+                                <th>Timestamp</th>
+                                <th>Open</th>
+                                <th>High</th>
+                                <th>Low</th>
+                                <th>Close</th>
+                                <th>Volume</th>
+                                <th>VWAP</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="candles-tbody"></tbody>
+                    </table>
+                </div>
+
+                <!-- Enrichment Tab -->
+                <div id="tab-enrichment" class="asset-tab-content" style="display: none;">
+                    <div class="enrichment-detail-grid" id="enrichment-grid"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Backfill Modal -->
+        <div id="backfill-modal" class="modal" style="display: none;">
+            <div class="modal-overlay" onclick="closeBackfillModal()"></div>
+            <div class="modal-content modal-form">
+                <div class="modal-header">
+                    <h2>Backfill Data</h2>
+                    <button class="modal-close" onclick="closeBackfillModal()">×</button>
+                </div>
+
+                <div class="form-group">
+                    <label>Symbols</label>
+                    <div id="backfill-symbols" class="selected-symbols-display">
+                        <!-- Will be populated by JS -->
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="backfill-start-date">Start Date</label>
+                    <input type="date" id="backfill-start-date" class="form-input">
+                </div>
+
+                <div class="form-group">
+                    <label for="backfill-end-date">End Date</label>
+                    <input type="date" id="backfill-end-date" class="form-input">
+                </div>
+
+                <div class="form-group">
+                    <label>Timeframes</label>
+                    <div id="backfill-timeframes" class="checkbox-group">
+                        <label><input type="checkbox" value="5m" checked> 5m</label>
+                        <label><input type="checkbox" value="15m" checked> 15m</label>
+                        <label><input type="checkbox" value="1h" checked> 1h</label>
+                        <label><input type="checkbox" value="1d" checked> 1d</label>
+                    </div>
+                </div>
+
+                <div class="form-actions">
+                    <button class="btn btn-secondary" onclick="closeBackfillModal()">Cancel</button>
+                    <button class="btn btn-primary" onclick="submitBackfill()">Start Backfill</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Enrichment Modal -->
+        <div id="enrich-modal" class="modal" style="display: none;">
+            <div class="modal-overlay" onclick="closeEnrichModal()"></div>
+            <div class="modal-content modal-form">
+                <div class="modal-header">
+                    <h2>Re-Enrich Data</h2>
+                    <button class="modal-close" onclick="closeEnrichModal()">×</button>
+                </div>
+
+                <div class="form-group">
+                    <label>Symbols</label>
+                    <div id="enrich-symbols" class="selected-symbols-display"></div>
+                </div>
+
+                <div class="form-group">
+                    <label for="enrich-timeframe">Timeframe</label>
+                    <select id="enrich-timeframe" class="form-input">
+                        <option value="5m">5 Minutes</option>
+                        <option value="15m">15 Minutes</option>
+                        <option value="1h" selected>1 Hour</option>
+                        <option value="1d">Daily</option>
+                    </select>
+                </div>
+
+                <div class="form-actions">
+                    <button class="btn btn-secondary" onclick="closeEnrichModal()">Cancel</button>
+                    <button class="btn btn-primary" onclick="submitEnrich()">Start Enrichment</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- TIER 3: MONITORING (collapsible) -->
+        <section class="monitoring collapsible-section" data-section="monitoring">
+            <div class="section-header" onclick="toggleSection('monitoring')">
+                <h2>Monitoring & Observability</h2>
+                <span class="toggle-icon">▼</span>
+            </div>
+            <div class="section-content">
+                <!-- Enrichment Status Section -->
+                <div class="subsection">
+                    <h3>Enrichment Status</h3>
+                    <div class="enrichment-status-grid">
+                        <div class="enrichment-status-item">
+                            <label>Status</label>
+                            <div id="enrichment-scheduler-status" class="enrichment-value">--</div>
+                        </div>
+                        <div class="enrichment-status-item">
+                            <label>Last Run</label>
+                            <div id="enrichment-last-run" class="enrichment-value">--</div>
+                        </div>
+                        <div class="enrichment-status-item">
+                            <label>Next Run</label>
+                            <div id="enrichment-next-run" class="enrichment-value">--</div>
+                        </div>
+                        <div class="enrichment-status-item">
+                            <label>Success Rate</label>
+                            <div id="enrichment-success-rate" class="enrichment-value">--%</div>
+                        </div>
+                        <div class="enrichment-status-item">
+                            <label>Symbols Enriched</label>
+                            <div id="enrichment-symbols-count" class="enrichment-value">--</div>
+                        </div>
+                        <div class="enrichment-status-item">
+                            <label>Avg Time</label>
+                            <div id="enrichment-avg-time" class="enrichment-value">-- s</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Pipeline Metrics Section -->
+                <div class="subsection">
+                    <h3>Pipeline Metrics</h3>
+                    <div class="pipeline-grid">
+                        <!-- Fetch Pipeline -->
+                        <div class="pipeline-card">
+                            <div class="pipeline-header">Fetch Pipeline</div>
+                            <div class="pipeline-stat">
+                                <span class="pipeline-label">Total Fetches</span>
+                                <span id="fetch-total" class="pipeline-value">--</span>
+                            </div>
+                            <div class="pipeline-stat">
+                                <span class="pipeline-label">Success Rate</span>
+                                <span id="fetch-success-rate" class="pipeline-value">--%</span>
+                            </div>
+                            <div class="pipeline-stat">
+                                <span class="pipeline-label">Avg Response</span>
+                                <span id="fetch-avg-time" class="pipeline-value">-- ms</span>
+                            </div>
+                            <div class="pipeline-stat">
+                                <span class="pipeline-label">Records Fetched</span>
+                                <span id="fetch-records" class="pipeline-value">--</span>
+                            </div>
+                        </div>
+
+                        <!-- Compute Pipeline -->
+                        <div class="pipeline-card">
+                            <div class="pipeline-header">Compute Pipeline</div>
+                            <div class="pipeline-stat">
+                                <span class="pipeline-label">Total Computations</span>
+                                <span id="compute-total" class="pipeline-value">--</span>
+                            </div>
+                            <div class="pipeline-stat">
+                                <span class="pipeline-label">Success Rate</span>
+                                <span id="compute-success-rate" class="pipeline-value">--%</span>
+                            </div>
+                            <div class="pipeline-stat">
+                                <span class="pipeline-label">Avg Time</span>
+                                <span id="compute-avg-time" class="pipeline-value">-- ms</span>
+                            </div>
+                            <div class="pipeline-stat">
+                                <span class="pipeline-label">Features Computed</span>
+                                <span id="compute-features" class="pipeline-value">--</span>
+                            </div>
+                        </div>
+
+                        <!-- Data Quality -->
+                        <div class="pipeline-card">
+                            <div class="pipeline-header">Data Quality</div>
+                            <div class="pipeline-stat">
+                                <span class="pipeline-label">Validation Rate</span>
+                                <span id="quality-validation" class="pipeline-value">--%</span>
+                            </div>
+                            <div class="pipeline-stat">
+                                <span class="pipeline-label">Avg Quality Score</span>
+                                <span id="quality-score" class="pipeline-value">--</span>
+                            </div>
+                            <div class="pipeline-stat">
+                                <span class="pipeline-label">Complete Records</span>
+                                <span id="quality-complete" class="pipeline-value">--%</span>
+                            </div>
+                            <div class="pipeline-stat">
+                                <span class="pipeline-label">Healthy Symbols</span>
+                                <span id="quality-healthy" class="pipeline-value">--</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Job Queue Section -->
+                <div class="subsection">
+                    <h3>Recent Jobs</h3>
+                    <div class="job-queue-table">
+                        <table id="job-table" class="job-table">
+                            <thead>
+                                <tr>
+                                    <th>Symbol</th>
+                                    <th>Status</th>
+                                    <th>Completion Time</th>
+                                    <th>Records Processed</th>
+                                    <th>Success</th>
+                                </tr>
+                            </thead>
+                            <tbody id="job-tbody">
+                                <tr><td colspan="5" style="text-align: center; color: var(--text-secondary);">Loading...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div id="job-count" class="job-count"></div>
+                </div>
+
+                <!-- Health Status Section -->
+                <div class="subsection">
+                    <h3>System Health</h3>
+                    <div class="health-grid">
+                        <div class="health-card">
+                            <div class="health-header">Scheduler</div>
+                            <div id="health-scheduler" class="health-status">--</div>
+                        </div>
+                        <div class="health-card">
+                            <div class="health-header">Database</div>
+                            <div id="health-database" class="health-status">--</div>
+                        </div>
+                        <div class="health-card">
+                            <div class="health-header">API Connectivity</div>
+                            <div id="health-api" class="health-status">--</div>
+                        </div>
+                        <div class="health-card">
+                            <div class="health-header">24h Failures</div>
+                            <div id="health-failures" class="health-status">--</div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </section>
 
-        <!-- Test Suite Section -->
-        <section class="card">
-            <h2>Test Suite</h2>
-            <div class="test-controls">
-                <button onclick="runAllTests()" class="btn btn-primary">Run Tests</button>
+        <!-- TIER 4: ADMIN (collapsible) -->
+        <section class="admin-section collapsible-section" data-section="admin">
+            <div class="section-header" onclick="toggleSection('admin')">
+                <h2>Admin Control Panel</h2>
+                <span class="toggle-icon">▼</span>
             </div>
-            
-            <div id="test-container" class="test-container" style="display: none;">
-                <div id="test-status" class="test-status"></div>
-                <div id="test-summary" class="test-summary"></div>
-                <div id="test-output" class="test-output"></div>
-            </div>
-        </section>
+            <div class="section-content">
+                <!-- System Resources -->
+                <div class="subsection">
+                    <h3>System Resources</h3>
+                    <div class="resource-grid">
+                        <div class="resource-item">
+                            <label>Database Size</label>
+                            <div id="db-size" class="resource-value">-- MB</div>
+                        </div>
+                        <div class="resource-item">
+                            <label>Data Age</label>
+                            <div id="data-age" class="resource-value">-- hours</div>
+                        </div>
+                        <div class="resource-item">
+                            <label>Gap Detection</label>
+                            <div id="gap-count" class="resource-value">-- records</div>
+                        </div>
+                    </div>
+                </div>
 
-        <!-- Quick Actions -->
-        <section class="card">
-            <h2>Quick Actions</h2>
-            <div class="actions">
-                <button onclick="refreshDashboard()" class="btn btn-primary">Refresh Now</button>
-                <button onclick="viewDocs()" class="btn btn-secondary">API Documentation</button>
-                <button onclick="testHealth()" class="btn btn-secondary">Health Check</button>
+                <!-- Test Suite Section -->
+                <div class="subsection">
+                    <h3>Test Suite</h3>
+                    <div class="test-controls">
+                        <button onclick="runAllTests()" class="btn btn-primary">Run Tests</button>
+                    </div>
+                    
+                    <div id="test-container" class="test-container" style="display: none;">
+                        <div id="test-status" class="test-status"></div>
+                        <div id="test-summary" class="test-summary"></div>
+                        <div id="test-output" class="test-output"></div>
+                    </div>
+                </div>
             </div>
         </section>
 

@@ -805,3 +805,1239 @@ class DatabaseService:
         
         finally:
             session.close()
+    
+    def insert_quant_features(
+        self,
+        symbol: str,
+        timeframe: str,
+        features_data: List[Dict]
+    ) -> int:
+        """
+        Insert computed quant features for OHLCV data.
+        
+        Args:
+            symbol: Stock ticker
+            timeframe: Candle timeframe
+            features_data: List of dicts with keys:
+                - time: timestamp
+                - return_1d: float
+                - volatility_20: float
+                - volatility_50: float
+                - atr: float
+                - rolling_volume_20: int
+                - volume_ratio: float
+                - structure_label: str
+                - trend_direction: str
+                - volatility_regime: str
+                - trend_regime: str
+                - compression_regime: str
+        
+        Returns:
+            Number of rows updated with features
+        """
+        if not features_data:
+            return 0
+        
+        session = self.SessionLocal()
+        updated = 0
+        
+        try:
+            for feature in features_data:
+                # Update market_data with computed features
+                update_stmt = text("""
+                    UPDATE market_data
+                    SET 
+                        return_1d = :return_1d,
+                        volatility_20 = :volatility_20,
+                        volatility_50 = :volatility_50,
+                        atr = :atr,
+                        rolling_volume_20 = :rolling_volume_20,
+                        volume_ratio = :volume_ratio,
+                        structure_label = :structure_label,
+                        trend_direction = :trend_direction,
+                        volatility_regime = :volatility_regime,
+                        trend_regime = :trend_regime,
+                        compression_regime = :compression_regime,
+                        features_computed_at = :computed_at
+                    WHERE symbol = :symbol 
+                        AND timeframe = :timeframe 
+                        AND time = :time
+                """)
+                
+                result = session.execute(update_stmt, {
+                    'symbol': symbol,
+                    'timeframe': timeframe,
+                    'time': feature['time'],
+                    'return_1d': feature.get('return_1d'),
+                    'volatility_20': feature.get('volatility_20'),
+                    'volatility_50': feature.get('volatility_50'),
+                    'atr': feature.get('atr'),
+                    'rolling_volume_20': feature.get('rolling_volume_20'),
+                    'volume_ratio': feature.get('volume_ratio'),
+                    'structure_label': feature.get('structure_label'),
+                    'trend_direction': feature.get('trend_direction'),
+                    'volatility_regime': feature.get('volatility_regime'),
+                    'trend_regime': feature.get('trend_regime'),
+                    'compression_regime': feature.get('compression_regime'),
+                    'computed_at': datetime.utcnow()
+                })
+                
+                updated += result.rowcount
+            
+            session.commit()
+            logger.info(f"Updated {updated} records with quant features for {symbol}/{timeframe}")
+        
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Error inserting quant features for {symbol}/{timeframe}: {e}")
+        
+        finally:
+            session.close()
+        
+        return updated
+    
+    def get_quant_features(
+        self,
+        symbol: str,
+        timeframe: str = '1d',
+        start: str = None,
+        end: str = None,
+        limit: int = 500
+    ) -> List[Dict]:
+        """
+        Fetch computed quant features for a symbol.
+        
+        Args:
+            symbol: Stock ticker
+            timeframe: Candle timeframe (default: '1d')
+            start: Start date YYYY-MM-DD (optional)
+            end: End date YYYY-MM-DD (optional)
+            limit: Max records to return (default: 500)
+        
+        Returns:
+            List of dicts with OHLCV + all quant features
+        """
+        session = self.SessionLocal()
+        
+        try:
+            conditions = [
+                "symbol = :symbol",
+                "timeframe = :timeframe",
+                "features_computed_at IS NOT NULL"
+            ]
+            
+            params = {'symbol': symbol, 'timeframe': timeframe, 'limit': limit}
+            
+            if start:
+                conditions.append("time >= :start::timestamp")
+                params['start'] = start
+            
+            if end:
+                conditions.append("time < :end::timestamp + INTERVAL '1 day'")
+                params['end'] = end
+            
+            where_clause = " AND ".join(conditions)
+            
+            sql = f"""
+                SELECT 
+                    time, symbol, timeframe, open, high, low, close, volume,
+                    return_1d, volatility_20, volatility_50, atr, rolling_volume_20,
+                    volume_ratio, structure_label, trend_direction, volatility_regime,
+                    trend_regime, compression_regime, quality_score, validated,
+                    features_computed_at
+                FROM market_data
+                WHERE {where_clause}
+                ORDER BY time ASC
+                LIMIT :limit
+            """
+            
+            result = session.execute(text(sql), params)
+            rows = result.fetchall()
+            
+            # Convert to list of dicts
+            data = []
+            for row in rows:
+                data.append({
+                    'time': row[0].isoformat() if row[0] else None,
+                    'symbol': row[1],
+                    'timeframe': row[2],
+                    'open': float(row[3]),
+                    'high': float(row[4]),
+                    'low': float(row[5]),
+                    'close': float(row[6]),
+                    'volume': row[7],
+                    'return_1d': float(row[8]) if row[8] is not None else None,
+                    'volatility_20': float(row[9]) if row[9] is not None else None,
+                    'volatility_50': float(row[10]) if row[10] is not None else None,
+                    'atr': float(row[11]) if row[11] is not None else None,
+                    'rolling_volume_20': row[12],
+                    'volume_ratio': float(row[13]) if row[13] is not None else None,
+                    'structure_label': row[14],
+                    'trend_direction': row[15],
+                    'volatility_regime': row[16],
+                    'trend_regime': row[17],
+                    'compression_regime': row[18],
+                    'quality_score': float(row[19]) if row[19] is not None else None,
+                    'validated': row[20],
+                    'features_computed_at': row[21].isoformat() if row[21] else None
+                })
+            
+            logger.info(f"Retrieved {len(data)} quant feature records for {symbol}/{timeframe}")
+            return data
+        
+        except Exception as e:
+            logger.error(f"Error fetching quant features for {symbol}/{timeframe}: {e}")
+            return []
+        
+        finally:
+            session.close()
+    
+    def update_quant_feature_summary(
+        self,
+        symbol: str,
+        timeframe: str,
+        latest_record: Dict
+    ) -> bool:
+        """
+        Update the quant feature summary table with latest features.
+        
+        Args:
+            symbol: Stock ticker
+            timeframe: Candle timeframe
+            latest_record: Dict with latest feature values
+        
+        Returns:
+            True if successful
+        """
+        session = self.SessionLocal()
+        
+        try:
+            upsert_stmt = text("""
+                INSERT INTO quant_feature_summary 
+                (symbol, timeframe, latest_timestamp, return_1d, volatility_20, 
+                 volatility_50, atr, rolling_volume_20, volume_ratio,
+                 structure_label, trend_direction, volatility_regime, 
+                 trend_regime, compression_regime, computed_at, updated_at)
+                VALUES 
+                (:symbol, :timeframe, :time, :return_1d, :volatility_20,
+                 :volatility_50, :atr, :rolling_volume_20, :volume_ratio,
+                 :structure_label, :trend_direction, :volatility_regime,
+                 :trend_regime, :compression_regime, :now, :now)
+                ON CONFLICT (symbol, timeframe) DO UPDATE SET
+                    latest_timestamp = EXCLUDED.latest_timestamp,
+                    return_1d = EXCLUDED.return_1d,
+                    volatility_20 = EXCLUDED.volatility_20,
+                    volatility_50 = EXCLUDED.volatility_50,
+                    atr = EXCLUDED.atr,
+                    rolling_volume_20 = EXCLUDED.rolling_volume_20,
+                    volume_ratio = EXCLUDED.volume_ratio,
+                    structure_label = EXCLUDED.structure_label,
+                    trend_direction = EXCLUDED.trend_direction,
+                    volatility_regime = EXCLUDED.volatility_regime,
+                    trend_regime = EXCLUDED.trend_regime,
+                    compression_regime = EXCLUDED.compression_regime,
+                    updated_at = EXCLUDED.updated_at
+            """)
+            
+            session.execute(upsert_stmt, {
+                'symbol': symbol,
+                'timeframe': timeframe,
+                'time': latest_record.get('time'),
+                'return_1d': latest_record.get('return_1d'),
+                'volatility_20': latest_record.get('volatility_20'),
+                'volatility_50': latest_record.get('volatility_50'),
+                'atr': latest_record.get('atr'),
+                'rolling_volume_20': latest_record.get('rolling_volume_20'),
+                'volume_ratio': latest_record.get('volume_ratio'),
+                'structure_label': latest_record.get('structure_label'),
+                'trend_direction': latest_record.get('trend_direction'),
+                'volatility_regime': latest_record.get('volatility_regime'),
+                'trend_regime': latest_record.get('trend_regime'),
+                'compression_regime': latest_record.get('compression_regime'),
+                'now': datetime.utcnow()
+            })
+            
+            session.commit()
+            logger.info(f"Updated quant feature summary for {symbol}/{timeframe}")
+            return True
+        
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Error updating quant feature summary: {e}")
+            return False
+        
+        finally:
+            session.close()
+    
+    # ============== PHASE 1: SCHEDULER MONITORING ==============
+    
+    def create_scheduler_execution_log(
+        self,
+        started_at: datetime,
+        total_symbols: int,
+        status: str = "running"
+    ) -> str:
+        """
+        Create a new scheduler execution log entry.
+        
+        Args:
+            started_at: When the execution started
+            total_symbols: Total symbols being processed
+            status: Current status (running, completed, failed)
+        
+        Returns:
+            execution_id UUID string
+        """
+        session = self.SessionLocal()
+        
+        try:
+            # Raw SQL to insert and return execution_id
+            result = session.execute(text("""
+                INSERT INTO scheduler_execution_log 
+                (started_at, total_symbols, status)
+                VALUES (:started_at, :total_symbols, :status)
+                RETURNING execution_id::text
+            """), {
+                "started_at": started_at,
+                "total_symbols": total_symbols,
+                "status": status
+            })
+            
+            execution_id = result.scalar()
+            session.commit()
+            logger.debug(f"Created scheduler execution log: {execution_id}")
+            return execution_id
+        
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Error creating scheduler execution log: {e}")
+            raise
+        
+        finally:
+            session.close()
+    
+    def update_scheduler_execution_log(
+        self,
+        execution_id: str,
+        completed_at: datetime,
+        successful_symbols: int,
+        failed_symbols: int,
+        total_records_processed: int,
+        status: str = "completed",
+        error_message: Optional[str] = None
+    ) -> bool:
+        """
+        Update scheduler execution log with completion details.
+        
+        Args:
+            execution_id: UUID of the execution
+            completed_at: When execution completed
+            successful_symbols: Count of successful symbols
+            failed_symbols: Count of failed symbols
+            total_records_processed: Total records processed
+            status: Final status
+            error_message: Any error message if failed
+        
+        Returns:
+            Success boolean
+        """
+        session = self.SessionLocal()
+        
+        try:
+            # Calculate duration
+            duration_seconds = None
+            started_at_result = session.execute(
+                text("SELECT started_at FROM scheduler_execution_log WHERE execution_id = :id"),
+                {"id": execution_id}
+            ).scalar()
+            
+            if started_at_result:
+                # Ensure both datetimes are timezone-aware for subtraction
+                from dateutil import parser
+                if isinstance(started_at_result, str):
+                    started_at_result = parser.isoparse(started_at_result)
+                
+                # Make completed_at timezone-aware if it isn't
+                if completed_at.tzinfo is None:
+                    from pytz import UTC
+                    completed_at = completed_at.replace(tzinfo=UTC)
+                
+                duration = completed_at - started_at_result
+                duration_seconds = int(duration.total_seconds())
+            
+            session.execute(text("""
+                UPDATE scheduler_execution_log
+                SET completed_at = :completed_at,
+                    successful_symbols = :successful_symbols,
+                    failed_symbols = :failed_symbols,
+                    total_records_processed = :total_records_processed,
+                    status = :status,
+                    error_message = :error_message,
+                    duration_seconds = :duration_seconds
+                WHERE execution_id = :execution_id
+            """), {
+                "completed_at": completed_at,
+                "successful_symbols": successful_symbols,
+                "failed_symbols": failed_symbols,
+                "total_records_processed": total_records_processed,
+                "status": status,
+                "error_message": error_message,
+                "duration_seconds": duration_seconds,
+                "execution_id": execution_id
+            })
+            
+            session.commit()
+            logger.debug(f"Updated scheduler execution log: {execution_id}")
+            return True
+        
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Error updating scheduler execution log: {e}")
+            return False
+        
+        finally:
+            session.close()
+    
+    def log_feature_computation_failure(
+        self,
+        symbol: str,
+        timeframe: str,
+        error_message: str,
+        execution_id: Optional[str] = None
+    ) -> bool:
+        """
+        Log a feature computation failure for a symbol/timeframe.
+        
+        Args:
+            symbol: Stock ticker
+            timeframe: Candle timeframe
+            error_message: Error description
+            execution_id: Link to scheduler execution if available
+        
+        Returns:
+            Success boolean
+        """
+        session = self.SessionLocal()
+        
+        try:
+            session.execute(text("""
+                INSERT INTO feature_computation_failures 
+                (symbol, timeframe, error_message, execution_id)
+                VALUES (:symbol, :timeframe, :error_message, :execution_id)
+            """), {
+                "symbol": symbol,
+                "timeframe": timeframe,
+                "error_message": error_message,
+                "execution_id": execution_id
+            })
+            
+            session.commit()
+            logger.debug(f"Logged feature computation failure: {symbol}/{timeframe}")
+            return True
+        
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Error logging feature computation failure: {e}")
+            return False
+        
+        finally:
+            session.close()
+    
+    def update_feature_freshness(
+        self,
+        symbol: str,
+        timeframe: str,
+        last_computed_at: datetime,
+        data_point_count: int,
+        staleness_seconds: int
+    ) -> bool:
+        """
+        Update feature freshness cache for a symbol/timeframe.
+        
+        Args:
+            symbol: Stock ticker
+            timeframe: Candle timeframe
+            last_computed_at: When features were last computed
+            data_point_count: Number of computed features
+            staleness_seconds: Seconds since computation
+        
+        Returns:
+            Success boolean
+        """
+        session = self.SessionLocal()
+        
+        try:
+            # Determine status based on staleness
+            if staleness_seconds is None or staleness_seconds > 86400:  # >24h
+                status = "stale"
+            elif staleness_seconds > 3600:  # >1h
+                status = "aging"
+            else:
+                status = "fresh"
+            
+            if data_point_count == 0:
+                status = "missing"
+            
+            session.execute(text("""
+                INSERT INTO feature_freshness 
+                (symbol, timeframe, last_computed_at, data_point_count, status, staleness_seconds)
+                VALUES (:symbol, :timeframe, :last_computed_at, :data_point_count, :status, :staleness_seconds)
+                ON CONFLICT (symbol, timeframe) DO UPDATE SET
+                    last_computed_at = :last_computed_at,
+                    data_point_count = :data_point_count,
+                    status = :status,
+                    staleness_seconds = :staleness_seconds,
+                    updated_at = NOW()
+            """), {
+                "symbol": symbol,
+                "timeframe": timeframe,
+                "last_computed_at": last_computed_at,
+                "data_point_count": data_point_count,
+                "status": status,
+                "staleness_seconds": staleness_seconds
+            })
+            
+            session.commit()
+            return True
+        
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Error updating feature freshness: {e}")
+            return False
+        
+        finally:
+            session.close()
+    
+    def log_symbol_computation_status(
+        self,
+        execution_id: str,
+        symbol: str,
+        asset_class: str,
+        timeframe: str,
+        status: str,
+        records_processed: int = 0,
+        records_inserted: int = 0,
+        features_computed: int = 0,
+        error_message: Optional[str] = None,
+        started_at: Optional[datetime] = None,
+        completed_at: Optional[datetime] = None
+    ) -> bool:
+        """
+        Log status of a symbol computation within an execution.
+        
+        Args:
+            execution_id: UUID of the parent scheduler execution
+            symbol: Stock ticker
+            asset_class: Type (stock, crypto, etf)
+            timeframe: Candle timeframe
+            status: Status (pending, in_progress, completed, failed)
+            records_processed: Records processed
+            records_inserted: Records inserted
+            features_computed: Features computed
+            error_message: Error if failed
+            started_at: When computation started
+            completed_at: When computation completed
+        
+        Returns:
+            Success boolean
+        """
+        session = self.SessionLocal()
+        
+        try:
+            duration_seconds = None
+            if started_at and completed_at:
+                duration_seconds = int((completed_at - started_at).total_seconds())
+            
+            session.execute(text("""
+                INSERT INTO symbol_computation_status
+                (execution_id, symbol, asset_class, timeframe, status, 
+                 records_processed, records_inserted, features_computed, 
+                 error_message, started_at, completed_at, duration_seconds)
+                VALUES (:execution_id, :symbol, :asset_class, :timeframe, :status,
+                        :records_processed, :records_inserted, :features_computed,
+                        :error_message, :started_at, :completed_at, :duration_seconds)
+            """), {
+                "execution_id": execution_id,
+                "symbol": symbol,
+                "asset_class": asset_class,
+                "timeframe": timeframe,
+                "status": status,
+                "records_processed": records_processed,
+                "records_inserted": records_inserted,
+                "features_computed": features_computed,
+                "error_message": error_message,
+                "started_at": started_at,
+                "completed_at": completed_at,
+                "duration_seconds": duration_seconds
+            })
+            
+            session.commit()
+            return True
+        
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Error logging symbol computation status: {e}")
+            return False
+        
+        finally:
+            session.close()
+    
+    def get_scheduler_health(self) -> Dict:
+        """
+        Get health status of scheduler and features.
+        
+        Returns:
+            Dict with:
+            - last_execution: Last successful execution
+            - stale_features: Count of stale features
+            - recent_failures: Recent computation failures
+            - symbols_monitored: Total symbols in feature_freshness
+        """
+        session = self.SessionLocal()
+        
+        try:
+            # Last execution
+            last_exec = session.execute(text("""
+                SELECT execution_id, started_at, completed_at, status, 
+                       successful_symbols, failed_symbols
+                FROM scheduler_execution_log
+                ORDER BY started_at DESC
+                LIMIT 1
+            """)).first()
+            
+            # Stale features (>24h)
+            stale_count = session.execute(text("""
+                SELECT COUNT(*) as count
+                FROM feature_freshness
+                WHERE status = 'stale'
+            """)).scalar()
+            
+            # Recent failures (last 24h)
+            recent_failures = session.execute(text("""
+                SELECT symbol, timeframe, error_message, failed_at
+                FROM feature_computation_failures
+                WHERE failed_at > NOW() - INTERVAL '24 hours'
+                  AND resolved = FALSE
+                ORDER BY failed_at DESC
+                LIMIT 10
+            """)).fetchall()
+            
+            # Total symbols monitored
+            total_symbols = session.execute(text("""
+                SELECT COUNT(DISTINCT symbol) as count
+                FROM feature_freshness
+            """)).scalar()
+            
+            return {
+                "last_execution": {
+                    "execution_id": str(last_exec[0]) if last_exec else None,
+                    "started_at": last_exec[1].isoformat() if last_exec else None,
+                    "completed_at": last_exec[2].isoformat() if last_exec else None,
+                    "status": last_exec[3] if last_exec else None,
+                    "successful_symbols": last_exec[4] if last_exec else 0,
+                    "failed_symbols": last_exec[5] if last_exec else 0
+                },
+                "stale_features_count": stale_count or 0,
+                "recent_failures": [
+                    {
+                        "symbol": f[0],
+                        "timeframe": f[1],
+                        "error": f[2],
+                        "failed_at": f[3].isoformat()
+                    }
+                    for f in recent_failures
+                ] if recent_failures else [],
+                "total_symbols_monitored": total_symbols or 0
+            }
+        
+        except Exception as e:
+            logger.error(f"Error getting scheduler health: {e}")
+            return {
+                "error": str(e),
+                "last_execution": None,
+                "stale_features_count": 0,
+                "recent_failures": [],
+                "total_symbols_monitored": 0
+            }
+        
+        finally:
+            session.close()
+    
+    def get_feature_staleness_report(self, limit: int = 50) -> List[Dict]:
+        """
+        Get features sorted by staleness for monitoring dashboard.
+        
+        Args:
+            limit: Max results to return
+        
+        Returns:
+            List of dicts with symbol, timeframe, staleness, status
+        """
+        session = self.SessionLocal()
+        
+        try:
+            results = session.execute(text("""
+                SELECT symbol, timeframe, last_computed_at, staleness_seconds, status, data_point_count
+                FROM feature_freshness
+                ORDER BY staleness_seconds DESC NULLS LAST
+                LIMIT :limit
+            """), {"limit": limit}).fetchall()
+            
+            return [
+                {
+                    "symbol": r[0],
+                    "timeframe": r[1],
+                    "last_computed_at": r[2].isoformat() if r[2] else None,
+                    "staleness_seconds": r[3],
+                    "status": r[4],
+                    "data_point_count": r[5]
+                }
+                for r in results
+            ]
+        
+        except Exception as e:
+            logger.error(f"Error getting feature staleness report: {e}")
+            return []
+        
+        finally:
+            session.close()
+    
+    # ===== Phase 4: Backfill State Persistence =====
+    
+    def create_backfill_state(
+        self,
+        symbol: str,
+        asset_class: str = 'stock',
+        timeframe: str = '1d',
+        status: str = 'pending'
+    ) -> str:
+        """
+        Create a new backfill state record for concurrent backfill tracking.
+        
+        Args:
+            symbol: Stock ticker
+            asset_class: Type of asset (stock, crypto, etf)
+            timeframe: Candle timeframe
+            status: Initial status (pending, in_progress, completed, failed)
+        
+        Returns:
+            execution_id (UUID) for tracking
+        """
+        session = self.SessionLocal()
+        try:
+            result = session.execute(
+                text("""
+                    INSERT INTO backfill_state_persistent
+                    (symbol, asset_class, timeframe, status, created_at)
+                    VALUES (:symbol, :asset_class, :timeframe, :status, NOW())
+                    RETURNING execution_id::text
+                """),
+                {
+                    "symbol": symbol,
+                    "asset_class": asset_class,
+                    "timeframe": timeframe,
+                    "status": status
+                }
+            )
+            session.commit()
+            execution_id = result.scalar()
+            logger.debug(f"Created backfill state for {symbol}/{timeframe}: {execution_id}")
+            return execution_id
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Failed to create backfill state: {e}")
+            raise
+        finally:
+            session.close()
+    
+    def update_backfill_state(
+        self,
+        execution_id: str,
+        status: str,
+        records_inserted: int = 0,
+        error_message: str = None,
+        retry_count: int = 0
+    ) -> bool:
+        """
+        Update backfill state record with completion details.
+        
+        Args:
+            execution_id: UUID from create_backfill_state
+            status: Updated status
+            records_inserted: Number of records inserted
+            error_message: Error details if failed
+            retry_count: Current retry count
+        
+        Returns:
+            True if successful, False otherwise
+        """
+        session = self.SessionLocal()
+        try:
+            completed_at = None if status == 'in_progress' else "NOW()"
+            
+            session.execute(
+                text("""
+                    UPDATE backfill_state_persistent
+                    SET status = :status,
+                        records_inserted = :records_inserted,
+                        error_message = :error_message,
+                        retry_count = :retry_count,
+                        completed_at = CASE WHEN :status != 'in_progress' THEN NOW() ELSE NULL END,
+                        updated_at = NOW()
+                    WHERE execution_id = :execution_id
+                """),
+                {
+                    "execution_id": execution_id,
+                    "status": status,
+                    "records_inserted": records_inserted,
+                    "error_message": error_message,
+                    "retry_count": retry_count
+                }
+            )
+            session.commit()
+            logger.debug(f"Updated backfill state {execution_id} to {status}")
+            return True
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Failed to update backfill state {execution_id}: {e}")
+            return False
+        finally:
+            session.close()
+    
+    def get_active_backfill_states(self) -> List[Dict]:
+        """
+        Get all active (in_progress) backfill states.
+        
+        Returns:
+            List of backfill state records
+        """
+        session = self.SessionLocal()
+        try:
+            results = session.execute(
+                text("""
+                    SELECT execution_id::text, symbol, timeframe, started_at,
+                           retry_count, max_retries
+                    FROM backfill_state_persistent
+                    WHERE status = 'in_progress'
+                    ORDER BY started_at ASC
+                """)
+            ).fetchall()
+            
+            return [
+                {
+                    "execution_id": r[0],
+                    "symbol": r[1],
+                    "timeframe": r[2],
+                    "started_at": r[3],
+                    "retry_count": r[4],
+                    "max_retries": r[5]
+                }
+                for r in results
+            ]
+        except Exception as e:
+            logger.error(f"Error getting active backfill states: {e}")
+            return []
+        finally:
+            session.close()
+    
+    # ===== Phase 4: Data Quality Maintenance =====
+    
+    def cleanup_duplicate_records(
+        self,
+        symbol: str = None,
+        timeframe: str = None,
+        dry_run: bool = False
+    ) -> Dict:
+        """
+        Detect and remove duplicate records for a symbol/timeframe.
+        
+        Args:
+            symbol: Optional symbol filter
+            timeframe: Optional timeframe filter
+            dry_run: If True, only report duplicates without deleting
+        
+        Returns:
+            Dictionary with cleanup results
+        """
+        session = self.SessionLocal()
+        try:
+            # Find duplicate records (same symbol, timeframe, time)
+            where_clause = ""
+            params = {}
+            
+            if symbol:
+                where_clause += " AND symbol = :symbol"
+                params["symbol"] = symbol
+            if timeframe:
+                where_clause += " AND timeframe = :timeframe"
+                params["timeframe"] = timeframe
+            
+            # Find records with duplicates
+            duplicate_query = f"""
+                SELECT symbol, timeframe, time, COUNT(*) as cnt
+                FROM market_data
+                WHERE time IS NOT NULL {where_clause}
+                GROUP BY symbol, timeframe, time
+                HAVING COUNT(*) > 1
+            """
+            
+            duplicates = session.execute(text(duplicate_query), params).fetchall()
+            
+            total_removed = 0
+            results = {
+                "total_duplicates_found": len(duplicates),
+                "total_records_removed": 0,
+                "cleanup_details": []
+            }
+            
+            if not dry_run and duplicates:
+                # For each duplicate, keep the newest and remove others
+                for dup in duplicates:
+                    sym, tf, candle_time, count = dup
+                    
+                    # Find IDs to remove (keep the one with highest id = newest)
+                    id_query = """
+                        SELECT id
+                        FROM market_data
+                        WHERE symbol = :symbol AND timeframe = :timeframe AND time = :time
+                        ORDER BY id DESC
+                        OFFSET 1
+                    """
+                    
+                    ids_to_remove = session.execute(
+                        text(id_query),
+                        {"symbol": sym, "timeframe": tf, "time": candle_time}
+                    ).fetchall()
+                    
+                    if ids_to_remove:
+                        id_list = [r[0] for r in ids_to_remove]
+                        
+                        # Delete duplicates
+                        delete_query = """
+                            DELETE FROM market_data
+                            WHERE id = ANY(:ids)
+                        """
+                        session.execute(text(delete_query), {"ids": id_list})
+                        
+                        # Log cleanup
+                        session.execute(
+                            text("""
+                                INSERT INTO duplicate_records_log
+                                (symbol, timeframe, candle_time, duplicate_count, duplicate_ids)
+                                VALUES (:symbol, :timeframe, :candle_time, :count, :ids)
+                            """),
+                            {
+                                "symbol": sym,
+                                "timeframe": tf,
+                                "candle_time": candle_time,
+                                "count": count - 1,
+                                "ids": id_list
+                            }
+                        )
+                        
+                        removed = len(id_list)
+                        total_removed += removed
+                        results["cleanup_details"].append({
+                            "symbol": sym,
+                            "timeframe": tf,
+                            "candle_time": candle_time.isoformat(),
+                            "duplicates_removed": removed
+                        })
+                
+                session.commit()
+            
+            results["total_records_removed"] = total_removed
+            logger.info(f"Data cleanup: {total_removed} duplicate records removed (dry_run={dry_run})")
+            
+            return results
+        
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Error cleaning up duplicate records: {e}")
+            return {"error": str(e), "total_records_removed": 0}
+        finally:
+            session.close()
+    
+    def detect_data_anomalies(
+        self,
+        symbol: str = None,
+        check_gaps: bool = True,
+        check_outliers: bool = True,
+        check_staleness: bool = True
+    ) -> Dict:
+        """
+        Detect data anomalies: gaps, duplicates, outliers, stale data.
+        
+        Args:
+            symbol: Optional symbol filter
+            check_gaps: Check for data gaps/breaks
+            check_outliers: Check for price/volume outliers
+            check_staleness: Check for stale data
+        
+        Returns:
+            Dictionary with anomaly details
+        """
+        session = self.SessionLocal()
+        try:
+            results = {
+                "timestamp": datetime.utcnow().isoformat(),
+                "gaps": [],
+                "outliers": [],
+                "stale_data": [],
+                "total_anomalies": 0
+            }
+            
+            where_clause = ""
+            params = {}
+            
+            if symbol:
+                where_clause = " WHERE symbol = :symbol"
+                params["symbol"] = symbol
+            
+            # Check for gaps (missing candles)
+            if check_gaps:
+                gap_query = f"""
+                    WITH gap_analysis AS (
+                        SELECT
+                            symbol,
+                            timeframe,
+                            time,
+                            LAG(time) OVER (
+                                PARTITION BY symbol, timeframe
+                                ORDER BY time
+                            ) as prev_time,
+                            EXTRACT(EPOCH FROM time - LAG(time) OVER (
+                                PARTITION BY symbol, timeframe
+                                ORDER BY time
+                            )) as time_gap_seconds
+                        FROM market_data
+                        {where_clause}
+                    )
+                    SELECT symbol, timeframe, time, prev_time, time_gap_seconds
+                    FROM gap_analysis
+                    WHERE time_gap_seconds > 86400
+                    LIMIT 100
+                """
+                
+                gaps = session.execute(text(gap_query)).fetchall()
+                for gap in gaps:
+                    results["gaps"].append({
+                        "symbol": gap[0],
+                        "timeframe": gap[1],
+                        "gap_time": gap[2].isoformat() if gap[2] else None,
+                        "gap_seconds": int(gap[4]) if gap[4] else 0
+                    })
+                
+                # Log anomalies
+                for gap in gaps:
+                    session.execute(
+                        text("""
+                            INSERT INTO data_anomalies
+                            (symbol, timeframe, anomaly_type, severity, data_point_time, description)
+                            VALUES (:symbol, :timeframe, 'gap', 'medium', :time, :desc)
+                        """),
+                        {
+                            "symbol": gap[0],
+                            "timeframe": gap[1],
+                            "time": gap[2],
+                            "desc": f"Gap of {int(gap[4]) // 3600} hours detected"
+                        }
+                    )
+            
+            # Check for stale data (last update > 24 hours)
+            if check_staleness:
+                stale_query = f"""
+                    SELECT symbol, timeframe, MAX(time) as last_time,
+                           EXTRACT(EPOCH FROM NOW() - MAX(time)) as staleness_seconds
+                    FROM market_data
+                    {where_clause}
+                    GROUP BY symbol, timeframe
+                    HAVING EXTRACT(EPOCH FROM NOW() - MAX(time)) > 86400
+                    ORDER BY staleness_seconds DESC
+                    LIMIT 100
+                """
+                
+                stale = session.execute(text(stale_query)).fetchall()
+                for record in stale:
+                    hours_stale = int(record[3] / 3600)
+                    results["stale_data"].append({
+                        "symbol": record[0],
+                        "timeframe": record[1],
+                        "last_update": record[2].isoformat() if record[2] else None,
+                        "hours_stale": hours_stale
+                    })
+                    
+                    # Log anomaly
+                    session.execute(
+                        text("""
+                            INSERT INTO data_anomalies
+                            (symbol, timeframe, anomaly_type, severity, data_point_time, description)
+                            VALUES (:symbol, :timeframe, 'stale', 'high', NOW(), :desc)
+                        """),
+                        {
+                            "symbol": record[0],
+                            "timeframe": record[1],
+                            "desc": f"Data stale for {hours_stale} hours"
+                        }
+                    )
+            
+            # Check for outliers (price movements > 20% in one candle)
+            if check_outliers:
+                outlier_query = f"""
+                    WITH price_changes AS (
+                        SELECT
+                            symbol,
+                            timeframe,
+                            time,
+                            close,
+                            LAG(close) OVER (
+                                PARTITION BY symbol, timeframe
+                                ORDER BY time
+                            ) as prev_close,
+                            ABS((close - LAG(close) OVER (
+                                PARTITION BY symbol, timeframe
+                                ORDER BY time
+                            )) / LAG(close) OVER (
+                                PARTITION BY symbol, timeframe
+                                ORDER BY time
+                            )) as pct_change
+                        FROM market_data
+                        {where_clause}
+                    )
+                    SELECT symbol, timeframe, time, close, prev_close, pct_change
+                    FROM price_changes
+                    WHERE pct_change > 0.20
+                    ORDER BY pct_change DESC
+                    LIMIT 100
+                """
+                
+                outliers = session.execute(text(outlier_query)).fetchall()
+                for outlier in outliers:
+                    results["outliers"].append({
+                        "symbol": outlier[0],
+                        "timeframe": outlier[1],
+                        "time": outlier[2].isoformat() if outlier[2] else None,
+                        "close": float(outlier[3]),
+                        "prev_close": float(outlier[4]) if outlier[4] else None,
+                        "pct_change": float(outlier[5]) * 100 if outlier[5] else 0
+                    })
+                    
+                    # Log anomaly with severity based on magnitude
+                    severity = "critical" if (outlier[5] or 0) > 0.50 else "high"
+                    session.execute(
+                        text("""
+                            INSERT INTO data_anomalies
+                            (symbol, timeframe, anomaly_type, severity, data_point_time, description)
+                            VALUES (:symbol, :timeframe, 'outlier', :severity, :time, :desc)
+                        """),
+                        {
+                            "symbol": outlier[0],
+                            "timeframe": outlier[1],
+                            "severity": severity,
+                            "time": outlier[2],
+                            "desc": f"Price outlier: {(outlier[5] or 0) * 100:.2f}% change"
+                        }
+                    )
+            
+            results["total_anomalies"] = (
+                len(results["gaps"]) + 
+                len(results["outliers"]) + 
+                len(results["stale_data"])
+            )
+            
+            session.commit()
+            logger.info(f"Data anomaly detection: {results['total_anomalies']} anomalies found")
+            
+            return results
+        
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Error detecting data anomalies: {e}")
+            return {"error": str(e), "total_anomalies": 0}
+        finally:
+            session.close()
+    
+    def track_symbol_failure(
+        self,
+        symbol: str,
+        success: bool = False
+    ) -> Dict:
+        """
+        Track consecutive failures for a symbol and trigger alerts.
+        
+        Args:
+            symbol: Stock ticker
+            success: Whether the operation was successful
+        
+        Returns:
+            Updated failure tracking record
+        """
+        session = self.SessionLocal()
+        try:
+            # Get or create tracking record
+            result = session.execute(
+                text("""
+                    INSERT INTO symbol_failure_tracking (symbol)
+                    VALUES (:symbol)
+                    ON CONFLICT (symbol) DO NOTHING
+                    RETURNING consecutive_failures
+                """),
+                {"symbol": symbol}
+            )
+            session.flush()
+            
+            if success:
+                # Reset on success
+                session.execute(
+                    text("""
+                        UPDATE symbol_failure_tracking
+                        SET consecutive_failures = 0,
+                            last_success_at = NOW(),
+                            alert_sent = FALSE,
+                            updated_at = NOW()
+                        WHERE symbol = :symbol
+                    """),
+                    {"symbol": symbol}
+                )
+            else:
+                # Increment on failure
+                session.execute(
+                    text("""
+                        UPDATE symbol_failure_tracking
+                        SET consecutive_failures = consecutive_failures + 1,
+                            last_failure_at = NOW(),
+                            updated_at = NOW()
+                        WHERE symbol = :symbol
+                    """),
+                    {"symbol": symbol}
+                )
+            
+            session.commit()
+            
+            # Fetch updated record
+            record = session.execute(
+                text("""
+                    SELECT consecutive_failures, last_failure_at, alert_sent
+                    FROM symbol_failure_tracking
+                    WHERE symbol = :symbol
+                """),
+                {"symbol": symbol}
+            ).fetchone()
+            
+            if record:
+                return {
+                    "symbol": symbol,
+                    "consecutive_failures": record[0],
+                    "last_failure_at": record[1],
+                    "alert_sent": record[2],
+                    "should_alert": record[0] >= 3 and not record[2]
+                }
+            
+            return {"symbol": symbol, "error": "Failed to track"}
+        
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Error tracking symbol failure for {symbol}: {e}")
+            return {"symbol": symbol, "error": str(e)}
+        finally:
+            session.close()

@@ -123,3 +123,38 @@ def sample_candle_batch():
             'v': 1200000, 't': 1699672800000, 'T': 'AAPL'
         }
     ]
+
+
+@pytest.fixture
+async def mock_api_server(monkeypatch):
+    """Mock HTTP responses for API testing when server is not running"""
+    import httpx
+    from unittest.mock import AsyncMock, MagicMock
+    import random
+    
+    # Create a mock transport that simulates API responses
+    class MockTransport(httpx.BaseTransport):
+        async def handle_async_request(self, request):
+            # Simulate network delay
+            await asyncio.sleep(random.uniform(0.05, 0.3))
+            
+            # Check if this is a features/quant request
+            if "/api/v1/features/quant/" in request.url.path:
+                # Return mock feature data
+                return httpx.Response(
+                    status_code=200,
+                    json={
+                        "symbol": "AAPL",
+                        "timeframe": "1d",
+                        "features": [
+                            {"timestamp": "2025-01-01", "sma_20": 150.0, "rsi": 55.0},
+                            {"timestamp": "2025-01-02", "sma_20": 151.0, "rsi": 56.0},
+                        ]
+                    },
+                    headers={"content-type": "application/json"}
+                )
+            
+            # Default response
+            return httpx.Response(status_code=404)
+    
+    return MockTransport()

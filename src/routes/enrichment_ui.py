@@ -609,7 +609,7 @@ async def get_enrichment_history(
 async def trigger_enrichment_manually(
     symbol: Optional[str] = Query(None, description="Symbol to enrich"),
     asset_class: str = Query("stock", description="Asset class"),
-    timeframes: List[str] = Query(["1d"], description="Timeframes to enrich")
+    timeframes: List[str] = Query(["1d"], description="Timeframes to enrich (1m, 5m, 15m, 30m, 1h, 4h, 1d, 1w)")
 ):
     """
     Manually trigger enrichment for symbols.

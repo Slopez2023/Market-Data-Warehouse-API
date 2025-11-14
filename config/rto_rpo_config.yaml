@@ -1,0 +1,188 @@
+# RTO/RPO Configuration - Phase 2: Validation
+
+# Feature Staleness Thresholds
+# How fresh do features need to be?
+staleness_thresholds:
+  fresh:
+    hours: 1
+    status: "fresh"
+    action: "return with timestamp"
+    alert: false
+  
+  aging:
+    hours: 6
+    status: "aging"
+    action: "return with staleness warning"
+    alert: false
+  
+  stale:
+    hours: 24
+    status: "stale"
+    action: "return with stale warning + cache lifespan"
+    alert: true
+    alert_severity: "warning"
+  
+  missing:
+    hours: null
+    status: "missing"
+    action: "return 404 + trigger manual enrichment"
+    alert: true
+    alert_severity: "warning"
+
+
+# RTO (Recovery Time Objective) by Failure Type
+# How quickly must we recover from each failure?
+rto_by_failure_type:
+  scheduler_crash:
+    rto_minutes: 5
+    procedure: "systemd auto-restart"
+    fallback: "manual trigger via API endpoint"
+    alert_threshold: 10  # Alert if crash + 10 minutes without recovery
+  
+  polygon_api_rate_limit:
+    rto_minutes: 0.5  # 30 seconds acceptable
+    procedure: "exponential backoff (1s, 5s, 30s, 5m)"
+    fallback: "use last cached features with warning"
+    alert_threshold: 5  # Alert if rate limited > 5 times
+  
+  database_connection_loss:
+    rto_minutes: 2
+    procedure: "automatic reconnect with exponential backoff"
+    fallback: "return cached data + staleness warning"
+    alert_threshold: 3  # Alert after 3 failed connection attempts
+  
+  feature_computation_failure:
+    rto_minutes: 0.5  # 30 seconds
+    procedure: "skip failed symbol, log error, continue"
+    fallback: "return cached features + error flag"
+    alert_threshold: 10  # Alert if > 10% symbols fail in single run
+
+
+# RPO (Recovery Point Objective) by Symbol Criticality
+# How much data loss is acceptable per symbol?
+rpo_by_symbol_criticality:
+  critical:
+    description: "Most-traded symbols, must not lose data"
+    symbols:
+      - "SPY"
+      - "QQQ"
+      - "BTC"
+      - "ETH"
+    acceptable_staleness_hours: 1
+    backfill_frequency: "every 15 minutes"
+    max_acceptable_data_loss_minutes: 0
+    priority: 1  # Process first during backfill
+  
+  standard:
+    description: "Large-cap, popular symbols"
+    symbols:
+      - "AAPL"
+      - "MSFT"
+      - "GOOGL"
+      - "AMZN"
+      - "TSLA"
+      - "NVDA"
+      - "META"
+      - "NFLX"
+      - "AVGO"
+      - "ASML"
+    acceptable_staleness_hours: 4
+    backfill_frequency: "every hour"
+    max_acceptable_data_loss_minutes: 60
+    priority: 2
+  
+  low_priority:
+    description: "Other symbols, can have stale data"
+    symbols: []  # Any symbol not in critical/standard
+    acceptable_staleness_hours: 24
+    backfill_frequency: "daily"
+    max_acceptable_data_loss_minutes: 1440  # 24 hours
+    priority: 3
+
+
+# Scheduler Recovery Procedures
+scheduler_recovery:
+  normal_operation:
+    description: "Daily scheduled backfill"
+    schedule: "01:30 UTC"
+    process_order:
+      - "critical symbols"
+      - "standard symbols"
+      - "low priority symbols"
+  
+  after_crash:
+    description: "Recovery after scheduler process crash"
+    step_1: "Systemd restarts service (5 minute delay max)"
+    step_2: "Service loads last checkpoint from scheduler_execution_log"
+    step_3: "Resume from checkpoint (skip already-processed symbols)"
+    step_4: "Continue for remaining symbols"
+    step_5: "Log recovery: 'Resumed from checkpoint after crash'"
+  
+  after_extended_downtime:
+    description: "Recovery after > 6 hours downtime"
+    trigger: "Manual API call: POST /api/v1/admin/backfill/trigger?force=true"
+    phase_1: "Backfill critical symbols first (all timeframes)"
+    phase_2: "Then backfill standard symbols"
+    phase_3: "Low-priority symbols catch up overnight"
+
+
+# Monitoring & Alerting Thresholds
+monitoring_thresholds:
+  no_successful_backfill:
+    threshold_hours: 6
+    severity: "warning"
+    action: "email alert to ops team"
+    message: "No successful backfill in last 6 hours"
+  
+  high_symbol_failure_rate:
+    threshold_percent: 20  # Alert if > 20% symbols fail
+    severity: "critical"
+    action: "page on-call engineer"
+    message: "High backfill failure rate ({percent}%)"
+  
+  features_missing:
+    threshold_percent: 10  # Alert if > 10% symbols missing features
+    severity: "warning"
+    action: "trigger manual enrichment"
+    message: "{count} symbols missing computed features"
+  
+  stale_features:
+    threshold_percent: 50  # Alert if > 50% features are stale
+    severity: "warning"
+    action: "notify engineering team"
+    message: "{count} symbol/timeframes have stale features"
+
+
+# Cache Configuration
+cache_policy:
+  # Redis cache for hot symbols
+  hot_symbols_cache:
+    enabled: true
+    symbols: "top 50 by volume"
+    ttl_minutes: 5
+    max_size_records: 10000  # Cache last 10k records per symbol
+  
+  # Database query cache
+  query_cache:
+    enabled: true
+    ttl_minutes: 5
+    max_size_queries: 1000
+
+
+# Backfill Optimization
+backfill_optimization:
+  # Parallel processing
+  max_concurrent_symbols: 5
+  max_concurrent_api_requests: 3  # Rate limit aware
+  batch_size_records: 500  # Records per DB insert
+  
+  # Retry policy
+  max_retries: 3
+  retry_backoff_seconds: [1, 5, 30]  # Exponential: 1s, 5s, 30s
+  
+  # Rate limiting
+  polygon_api:
+    rate_limit_per_minute: 5
+    burst_capacity: 10
+    backoff_strategy: "exponential"
+    max_backoff_seconds: 300  # 5 minutes max

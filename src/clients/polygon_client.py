@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 
 # Timeframe to Polygon API mapping
 TIMEFRAME_MAP = {
+    '1m': {'multiplier': 1, 'timespan': 'minute'},
     '5m': {'multiplier': 5, 'timespan': 'minute'},
     '15m': {'multiplier': 15, 'timespan': 'minute'},
     '30m': {'multiplier': 30, 'timespan': 'minute'},
@@ -25,7 +26,7 @@ class PolygonClient:
     Polygon.io API client for US stocks and crypto.
     
     Supports multiple timeframes:
-    - Intraday: 5m, 15m, 30m, 1h, 4h
+    - Intraday: 1m, 5m, 15m, 30m, 1h, 4h
     - Daily: 1d
     - Weekly: 1w
     
@@ -40,6 +41,10 @@ class PolygonClient:
         self.api_key = api_key
         self.base_url = "https://api.polygon.io/v2"
         self.crypto_base_url = "https://api.polygon.io/v1"
+        
+        # Phase 3: Rate limit tracking for monitoring
+        self.rate_limited_count = 0
+        self.total_requests = 0
     
     @staticmethod
     def _get_timeframe_params(timeframe: str) -> Dict[str, any]:
@@ -91,8 +96,8 @@ class PolygonClient:
         return symbol
     
     @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=2, max=10)
+        stop=stop_after_attempt(5),
+        wait=wait_exponential(multiplier=1, min=1, max=300)
     )
     async def fetch_range(
         self,
@@ -148,10 +153,12 @@ class PolygonClient:
         
         try:
             async with aiohttp.ClientSession() as session:
+                self.total_requests += 1
                 async with session.get(url, params=params, timeout=30) as response:
                     
                     if response.status == 429:
-                        logger.warning(f"Rate limited (429) for {symbol} ({timeframe}) - {start} to {end}")
+                        self.rate_limited_count += 1
+                        logger.warning(f"Rate limited (429) for {symbol} ({timeframe}) - Retry {self.rate_limited_count}")
                         raise ValueError("Rate limited (429) - too many requests")
                     
                     if response.status != 200:
@@ -178,8 +185,8 @@ class PolygonClient:
             raise
     
     @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=2, max=10)
+        stop=stop_after_attempt(5),
+        wait=wait_exponential(multiplier=1, min=1, max=300)
     )
     async def fetch_daily_range(
         self,
@@ -206,8 +213,8 @@ class PolygonClient:
         return await self.fetch_range(symbol, '1d', start, end)
     
     @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=2, max=10)
+        stop=stop_after_attempt(5),
+        wait=wait_exponential(multiplier=1, min=1, max=300)
     )
     async def fetch_crypto_daily_range(
         self,
@@ -258,8 +265,8 @@ class PolygonClient:
             return None
     
     @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=2, max=10)
+        stop=stop_after_attempt(5),
+        wait=wait_exponential(multiplier=1, min=1, max=300)
     )
     async def fetch_dividends(
         self,
@@ -322,8 +329,8 @@ class PolygonClient:
             raise
     
     @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=2, max=10)
+        stop=stop_after_attempt(5),
+        wait=wait_exponential(multiplier=1, min=1, max=300)
     )
     async def fetch_stock_splits(
         self,

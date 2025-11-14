@@ -25,6 +25,7 @@ from src.scheduler import AutoBackfillScheduler, get_last_backfill_result, get_l
 from src.services.database_service import DatabaseService
 from src.services.enrichment_scheduler import EnrichmentScheduler
 from src.routes.enrichment_ui import init_enrichment_ui, router as enrichment_ui_router
+from src.routes.asset_data import router as asset_router
 from src.services.resilience_manager import init_resilience_manager
 from src.models import (
     HealthResponse, StatusResponse, AddSymbolRequest, TrackedSymbol,
@@ -243,6 +244,9 @@ app.add_middleware(
 
 # Phase 1h: Include enrichment UI router
 app.include_router(enrichment_ui_router)
+
+# Asset data routes
+app.include_router(asset_router)
 
 
 @app.get("/")
@@ -1891,6 +1895,125 @@ async def trigger_enrichment(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/api/v1/backfill")
+async def bulk_backfill(
+    symbols: List[str] = Query(..., description="List of symbols to backfill"),
+    start_date: str = Query(..., description="Start date (YYYY-MM-DD)"),
+    end_date: str = Query(..., description="End date (YYYY-MM-DD)"),
+    timeframes: List[str] = Query(['1d'], description="Timeframes to backfill")
+):
+    """
+    Trigger backfill for multiple symbols.
+    
+    Args:
+        symbols: List of asset symbols
+        start_date: Start date in YYYY-MM-DD format
+        end_date: End date in YYYY-MM-DD format
+        timeframes: List of timeframes to backfill
+    
+    Returns:
+        Job info with ID and status
+    """
+    try:
+        import uuid
+        from datetime import datetime as dt
+        
+        # Validate inputs
+        if not symbols:
+            raise ValueError("At least one symbol required")
+        if len(symbols) > 100:
+            raise ValueError("Maximum 100 symbols per request")
+        
+        # Parse dates
+        try:
+            start = dt.strptime(start_date, '%Y-%m-%d')
+            end = dt.strptime(end_date, '%Y-%m-%d')
+        except ValueError:
+            raise ValueError("Invalid date format. Use YYYY-MM-DD")
+        
+        if start > end:
+            raise ValueError("Start date must be before end date")
+        
+        # Create job ID
+        job_id = str(uuid.uuid4())
+        
+        # Log the backfill request
+        logger.info(f"Bulk backfill started: {len(symbols)} symbols, {len(timeframes)} timeframes",
+                   extra={
+                       'job_id': job_id,
+                       'symbol_count': len(symbols),
+                       'date_range': f"{start_date} to {end_date}",
+                       'timeframes': timeframes
+                   })
+        
+        # In a production system, this would queue the job
+        # For now, return immediate response
+        return {
+            'job_id': job_id,
+            'status': 'queued',
+            'symbols_count': len(symbols),
+            'symbols': symbols[:10] + (['...'] if len(symbols) > 10 else []),
+            'date_range': {'start': start_date, 'end': end_date},
+            'timeframes': timeframes,
+            'timestamp': datetime.utcnow().isoformat()
+        }
+    
+    except Exception as e:
+        logger.error(f"Error in bulk backfill: {e}", extra={'error': str(e)})
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/v1/enrich")
+async def bulk_enrich(
+    symbols: List[str] = Query(..., description="List of symbols to enrich"),
+    timeframe: str = Query('1h', description="Timeframe to enrich")
+):
+    """
+    Trigger enrichment for multiple symbols.
+    
+    Args:
+        symbols: List of asset symbols
+        timeframe: Single timeframe to enrich
+    
+    Returns:
+        Job info with ID and status
+    """
+    try:
+        import uuid
+        
+        # Validate inputs
+        if not symbols:
+            raise ValueError("At least one symbol required")
+        if len(symbols) > 100:
+            raise ValueError("Maximum 100 symbols per request")
+        
+        # Create job ID
+        job_id = str(uuid.uuid4())
+        
+        # Log the enrichment request
+        logger.info(f"Bulk enrichment started: {len(symbols)} symbols, timeframe={timeframe}",
+                   extra={
+                       'job_id': job_id,
+                       'symbol_count': len(symbols),
+                       'timeframe': timeframe
+                   })
+        
+        # In a production system, this would queue the job
+        # For now, return immediate response
+        return {
+            'job_id': job_id,
+            'status': 'queued',
+            'symbols_count': len(symbols),
+            'symbols': symbols[:10] + (['...'] if len(symbols) > 10 else []),
+            'timeframe': timeframe,
+            'timestamp': datetime.utcnow().isoformat()
+        }
+    
+    except Exception as e:
+        logger.error(f"Error in bulk enrichment: {e}", extra={'error': str(e)})
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @app.get("/api/v1/data/quality/{symbol}")
 async def get_data_quality_report(
     symbol: str,
@@ -2315,6 +2438,133 @@ async def trigger_enrichment_endpoint(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/v1/features/quant/{symbol}")
+async def get_quant_features_endpoint(
+    symbol: str,
+    timeframe: str = Query("1d", description="Timeframe: 5m, 15m, 30m, 1h, 4h, 1d, 1w"),
+    start: str = Query(None, description="Start date YYYY-MM-DD (optional)"),
+    end: str = Query(None, description="End date YYYY-MM-DD (optional)"),
+    limit: int = Query(500, ge=1, le=10000, description="Max records to return")
+):
+    """
+    GET /api/v1/features/quant/{symbol}
+    
+    Fetch AI-ready quant features for a symbol.
+    
+    Returns OHLCV + computed features:
+    - Returns: return_1h, return_1d
+    - Volatility: volatility_20, volatility_50, atr
+    - Volume: rolling_volume_20, volume_ratio
+    - Structure: structure_label, trend_direction, hh, hl, lh, ll
+    - Regimes: volatility_regime, trend_regime, compression_regime
+    
+    Example:
+    - GET /api/v1/features/quant/AAPL?timeframe=1d
+    - GET /api/v1/features/quant/MSFT?timeframe=1h&start=2024-01-01&end=2024-12-31&limit=1000
+    
+    Query Parameters:
+        symbol: Asset ticker (e.g., AAPL, BTC)
+        timeframe: Candle timeframe (5m, 15m, 30m, 1h, 4h, 1d, 1w) - default: 1d
+        start: Optional start date YYYY-MM-DD
+        end: Optional end date YYYY-MM-DD
+        limit: Max records (1-10000, default: 500)
+    
+    Returns:
+        {
+            "symbol": "AAPL",
+            "timeframe": "1d",
+            "records_returned": 250,
+            "date_range": {"start": "2024-01-01", "end": "2024-12-31"},
+            "features": [
+                {
+                    "time": "2024-11-13T00:00:00Z",
+                    "open": 234.56,
+                    "high": 235.80,
+                    "low": 234.12,
+                    "close": 235.45,
+                    "volume": 52341200,
+                    "return_1d": 0.0082,
+                    "volatility_20": 0.1823,
+                    "volatility_50": 0.1756,
+                    "atr": 2.34,
+                    "rolling_volume_20": 48500000,
+                    "volume_ratio": 1.08,
+                    "structure_label": "bullish",
+                    "trend_direction": "up",
+                    "volatility_regime": "medium",
+                    "trend_regime": "uptrend",
+                    "compression_regime": "expanded",
+                    "quality_score": 0.95,
+                    "validated": true
+                },
+                ...
+            ],
+            "timestamp": "2024-11-13T10:31:00Z"
+        }
+    """
+    try:
+        # Validate timeframe
+        try:
+            timeframe = validate_timeframe(timeframe)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        
+        # Validate date format if provided
+        if start:
+            try:
+                datetime.strptime(start, "%Y-%m-%d")
+            except ValueError:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid start date format. Use YYYY-MM-DD"
+                )
+        
+        if end:
+            try:
+                datetime.strptime(end, "%Y-%m-%d")
+            except ValueError:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid end date format. Use YYYY-MM-DD"
+                )
+        
+        # Fetch quant features
+        features = db.get_quant_features(
+            symbol=symbol.upper(),
+            timeframe=timeframe,
+            start=start,
+            end=end,
+            limit=limit
+        )
+        
+        if not features:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No quant features found for {symbol.upper()} timeframe={timeframe}. Data may not have been computed yet."
+            )
+        
+        # Build date range
+        date_range = {}
+        if features:
+            date_range["start"] = features[0].get("time", "").split("T")[0] if features[0].get("time") else None
+            date_range["end"] = features[-1].get("time", "").split("T")[0] if features[-1].get("time") else None
+        
+        return {
+            "symbol": symbol.upper(),
+            "timeframe": timeframe,
+            "records_returned": len(features),
+            "date_range": date_range,
+            "features": features,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching quant features for {symbol}: {e}")
+        raise HTTPException(status_code=500, detail=f"Query failed: {str(e)}")
+
+
 @app.get("/api/v1/data/quality/{symbol}")
 async def get_data_quality_report_endpoint(
     symbol: str,
@@ -2463,6 +2713,127 @@ async def get_data_quality_report_endpoint(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ========================= PHASE 1: SCHEDULER MONITORING =========================
+
+@app.get("/api/v1/admin/scheduler-health")
+async def get_scheduler_health():
+    """
+    Get scheduler health status and feature freshness overview.
+    
+    Returns:
+    - last_execution: Details of last backfill run
+    - stale_features_count: How many symbol/timeframes have stale features
+    - recent_failures: Recent computation failures
+    - total_symbols_monitored: Count of unique symbols with features
+    """
+    try:
+        health = db.get_scheduler_health()
+        
+        return {
+            "status": "healthy" if health.get("stale_features_count", 0) == 0 else "degraded",
+            "timestamp": datetime.utcnow().isoformat(),
+            **health
+        }
+    
+    except Exception as e:
+        logger.error(f"Error getting scheduler health: {e}", extra={'error': str(e)})
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/v1/admin/features/staleness")
+async def get_feature_staleness_report(limit: int = Query(50, ge=1, le=500)):
+    """
+    Get feature freshness report for monitoring dashboard.
+    
+    Shows which symbols/timeframes have stale features sorted by staleness.
+    Useful for identifying data gaps and scheduler issues.
+    
+    Query params:
+    - limit: Max results (1-500, default 50)
+    
+    Returns:
+    - List of {symbol, timeframe, last_computed_at, staleness_seconds, status, data_point_count}
+    """
+    try:
+        features = db.get_feature_staleness_report(limit=limit)
+        
+        # Categorize by status
+        fresh = [f for f in features if f["status"] == "fresh"]
+        aging = [f for f in features if f["status"] == "aging"]
+        stale = [f for f in features if f["status"] == "stale"]
+        missing = [f for f in features if f["status"] == "missing"]
+        
+        return {
+            "timestamp": datetime.utcnow().isoformat(),
+            "summary": {
+                "fresh_count": len(fresh),
+                "aging_count": len(aging),
+                "stale_count": len(stale),
+                "missing_count": len(missing),
+                "total_monitored": len(features)
+            },
+            "by_status": {
+                "fresh": fresh,
+                "aging": aging,
+                "stale": stale,
+                "missing": missing
+            }
+        }
+    
+    except Exception as e:
+        logger.error(f"Error getting feature staleness report: {e}", extra={'error': str(e)})
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/v1/admin/scheduler/execution-history")
+async def get_scheduler_execution_history(limit: int = Query(20, ge=1, le=100)):
+    """
+    Get recent scheduler execution history for auditing.
+    
+    Returns:
+    - List of past executions with timing, symbol counts, success/failure rates
+    """
+    try:
+        from sqlalchemy import text
+        
+        session = db.SessionLocal()
+        
+        results = session.execute(text("""
+            SELECT execution_id, started_at, completed_at, duration_seconds,
+                   total_symbols, successful_symbols, failed_symbols, 
+                   total_records_processed, status, error_message
+            FROM scheduler_execution_log
+            ORDER BY started_at DESC
+            LIMIT :limit
+        """), {"limit": limit}).fetchall()
+        
+        session.close()
+        
+        executions = [
+            {
+                "execution_id": str(r[0]),
+                "started_at": r[1].isoformat(),
+                "completed_at": r[2].isoformat() if r[2] else None,
+                "duration_seconds": r[3],
+                "total_symbols": r[4],
+                "successful_symbols": r[5],
+                "failed_symbols": r[6],
+                "total_records_processed": r[7],
+                "status": r[8],
+                "error_message": r[9],
+                "success_rate": round((r[5] / r[4] * 100), 1) if r[4] > 0 else 0
+            }
+            for r in results
+        ]
+        
+        return {
+            "timestamp": datetime.utcnow().isoformat(),
+            "executions": executions
+        }
+    
+    except Exception as e:
+        logger.error(f"Error getting execution history: {e}", extra={'error': str(e)})
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 

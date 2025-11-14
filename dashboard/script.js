@@ -34,12 +34,23 @@ let state = {
   isLoading: true,
 };
 
+// Asset modal state
+let currentSymbol = null;
+let assetCache = new Map();
+const CACHE_TTL = 60000; // 1 minute
+
+// Selection state for bulk operations
+let selectedSymbols = new Set();
+
 /**
  * Initialize dashboard on page load
  */
 document.addEventListener("DOMContentLoaded", () => {
   console.log("Dashboard initializing...");
   setupSymbolSearch();
+  setupCollapsibleSections();
+  setupSymbolTableClickHandlers();
+  restoreSectionStates();
   refreshDashboard();
   setInterval(refreshDashboard, CONFIG.REFRESH_INTERVAL);
 
@@ -50,6 +61,33 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 });
+
+/**
+ * Toggle collapsible section
+ */
+function toggleSection(sectionName) {
+  const section = document.querySelector(`[data-section="${sectionName}"]`);
+  if (section) {
+    section.classList.toggle('collapsed');
+    // Persist preference in localStorage
+    const collapsed = section.classList.contains('collapsed');
+    localStorage.setItem(`section-${sectionName}`, collapsed ? 'collapsed' : 'expanded');
+  }
+}
+
+/**
+ * Restore section states from localStorage
+ */
+function restoreSectionStates() {
+  const sections = document.querySelectorAll('.collapsible-section');
+  sections.forEach(section => {
+    const sectionName = section.getAttribute('data-section');
+    const state = localStorage.getItem(`section-${sectionName}`);
+    if (state === 'collapsed') {
+      section.classList.add('collapsed');
+    }
+  });
+}
 
 /**
  * Main refresh function
@@ -310,8 +348,14 @@ function renderSymbolTable() {
   // Render rows
   const html = filtered
     .map(
-      (symbol) => `
-    <tr>
+      (symbol) => {
+        const isSelected = selectedSymbols.has(symbol.symbol);
+        return `
+    <tr class="${isSelected ? 'selected' : ''}">
+      <td style="width: 40px;">
+        <input type="checkbox" class="symbol-checkbox" data-symbol="${escapeHtml(symbol.symbol)}" 
+               ${isSelected ? 'checked' : ''} onchange="toggleSymbolSelection(this)">
+      </td>
       <td><span class="symbol-name">${escapeHtml(symbol.symbol)}</span></td>
       <td>${formatNumber(symbol.records)}</td>
       <td>${symbol.validation_rate.toFixed(1)}%</td>
@@ -324,13 +368,14 @@ function renderSymbolTable() {
         </span>
       </td>
     </tr>
-  `
+  `;
+      }
     )
     .join("");
 
   container.innerHTML =
     html ||
-    '<tr><td colspan="7" style="text-align: center; color: var(--text-secondary);">No matching symbols</td></tr>';
+    '<tr><td colspan="8" style="text-align: center; color: var(--text-secondary);">No matching symbols</td></tr>';
   updateSymbolCount(filtered.length, symbolTableState.allSymbols.length);
   updateSortIndicators();
 }
@@ -371,6 +416,100 @@ function setupSymbolSearch() {
       renderSymbolTable();
     });
   }
+}
+
+/**
+ * Setup symbol table row click handlers
+ */
+function setupSymbolTableClickHandlers() {
+  document.addEventListener('click', (e) => {
+    const row = e.target.closest('#symbol-tbody tr');
+    if (row && !row.querySelector('input[type="checkbox"]')) {
+      // Get symbol from first column after checkbox column
+      const symbolCell = row.querySelector('td:nth-child(2) .symbol-name');
+      if (symbolCell) {
+        const symbol = symbolCell.textContent;
+        openAssetModal(symbol);
+      }
+    }
+  });
+}
+
+/**
+ * Toggle individual symbol selection
+ */
+function toggleSymbolSelection(checkbox) {
+  const symbol = checkbox.getAttribute('data-symbol');
+  const row = checkbox.closest('tr');
+  
+  if (checkbox.checked) {
+    selectedSymbols.add(symbol);
+    row.classList.add('selected');
+  } else {
+    selectedSymbols.delete(symbol);
+    row.classList.remove('selected');
+  }
+  
+  updateSelectionToolbar();
+  updateSelectAllCheckbox();
+}
+
+/**
+ * Toggle select all checkboxes
+ */
+function toggleSelectAll(checkbox) {
+  const checkboxes = document.querySelectorAll('.symbol-checkbox');
+  checkboxes.forEach(cb => {
+    cb.checked = checkbox.checked;
+    toggleSymbolSelection(cb);
+  });
+}
+
+/**
+ * Update the "select all" checkbox state based on current selections
+ */
+function updateSelectAllCheckbox() {
+  const selectAll = document.getElementById('select-all-symbols');
+  const checkboxes = document.querySelectorAll('.symbol-checkbox');
+  const checked = document.querySelectorAll('.symbol-checkbox:checked');
+  
+  if (selectAll) {
+    selectAll.checked = checkboxes.length > 0 && checkboxes.length === checked.length;
+    selectAll.indeterminate = checked.length > 0 && checkboxes.length !== checked.length;
+  }
+}
+
+/**
+ * Update toolbar visibility and count
+ */
+function updateSelectionToolbar() {
+  const toolbar = document.getElementById('selection-toolbar');
+  const count = document.getElementById('selection-count');
+  
+  if (selectedSymbols.size > 0) {
+    toolbar.style.display = 'flex';
+    count.textContent = `${selectedSymbols.size} symbol${selectedSymbols.size !== 1 ? 's' : ''} selected`;
+  } else {
+    toolbar.style.display = 'none';
+  }
+}
+
+/**
+ * Clear all selections
+ */
+function clearSelection() {
+  selectedSymbols.clear();
+  document.querySelectorAll('.symbol-checkbox').forEach(cb => cb.checked = false);
+  document.querySelectorAll('.symbol-table tbody tr').forEach(row => row.classList.remove('selected'));
+  document.getElementById('select-all-symbols').checked = false;
+  updateSelectionToolbar();
+}
+
+/**
+ * Get selected symbols as array
+ */
+function getSelectedSymbols() {
+  return Array.from(selectedSymbols);
 }
 
 /**
@@ -819,5 +958,436 @@ async function runAllTests() {
     statusEl.textContent = "✗ Test Execution Error";
     summaryEl.textContent = `Error: ${error.message}`;
     outputEl.textContent = "Failed to run tests. Check API logs for details.";
+    }
+}
+
+// ============================================================
+// ASSET DETAIL MODAL FUNCTIONS
+// ============================================================
+
+async function openAssetModal(symbol) {
+  currentSymbol = symbol;
+  document.getElementById('asset-modal').style.display = 'flex';
+  document.getElementById('modal-symbol').textContent = symbol;
+  
+  // Load overview by default
+  await loadAssetOverview(symbol);
+}
+
+function closeAssetModal() {
+  document.getElementById('asset-modal').style.display = 'none';
+  currentSymbol = null;
+}
+
+function switchAssetTab(tabName) {
+  // Hide all tabs
+  document.getElementById('tab-overview').style.display = 'none';
+  document.getElementById('tab-candles').style.display = 'none';
+  document.getElementById('tab-enrichment').style.display = 'none';
+  
+  // Remove active class from buttons
+  document.querySelectorAll('.asset-tab-btn').forEach(btn => {
+    btn.classList.remove('active');
+  });
+  
+  // Show selected tab
+  document.getElementById(`tab-${tabName}`).style.display = 'block';
+  event.target.classList.add('active');
+  
+  // Load data if needed
+  if (tabName === 'candles') {
+    loadCandleData(currentSymbol, '1h');
+  } else if (tabName === 'enrichment') {
+    loadEnrichmentData(currentSymbol, '1h');
   }
+}
+
+async function loadAssetOverview(symbol) {
+  try {
+    const cacheKey = `asset-${symbol}`;
+    const cached = assetCache.get(cacheKey);
+    
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+      renderOverview(cached.data);
+      return;
+    }
+    
+    const response = await fetch(`${CONFIG.API_BASE}/api/v1/assets/${symbol}`);
+    if (!response.ok) throw new Error('Failed to load asset data');
+    const asset = await response.json();
+    
+    assetCache.set(cacheKey, { data: asset, timestamp: Date.now() });
+    renderOverview(asset);
+  } catch (error) {
+    console.error('Error loading asset overview:', error);
+    document.getElementById('overview-grid').innerHTML = 
+      `<p style="color: red;">Error loading asset data: ${error.message}</p>`;
+  }
+}
+
+function renderOverview(asset) {
+  const grid = document.getElementById('overview-grid');
+  const statusClass = getStatusClass(asset.status);
+  
+  grid.innerHTML = `
+    <div class="stat-box">
+      <span class="stat-label">Status</span>
+      <span class="stat-value ${statusClass}">${asset.status}</span>
+    </div>
+    <div class="stat-box">
+      <span class="stat-label">Last Update</span>
+      <span class="stat-value">${formatDateTime(asset.last_update)}</span>
+    </div>
+    <div class="stat-box">
+      <span class="stat-label">Data Age</span>
+      <span class="stat-value">${asset.data_age_hours || '--'} hours</span>
+    </div>
+    <div class="stat-box">
+      <span class="stat-label">Quality Score</span>
+      <span class="stat-value">${(asset.quality?.quality_score * 100).toFixed(1) || '--'}%</span>
+    </div>
+  `;
+  
+  // Populate timeframes table
+  const tbody = document.getElementById('timeframes-tbody');
+  tbody.innerHTML = '';
+  
+  for (const [tf, data] of Object.entries(asset.timeframes || {})) {
+    const statusClass = getStatusClass(data.status);
+    tbody.innerHTML += `
+      <tr>
+        <td><strong>${tf}</strong></td>
+        <td>${(data.records || 0).toLocaleString()}</td>
+        <td>${formatDateTime(data.latest)}</td>
+        <td><span class="status-badge ${statusClass}">${data.status}</span></td>
+      </tr>
+    `;
+  }
+}
+
+async function loadCandleData(symbol, timeframe = '1h') {
+  try {
+    const cacheKey = `candles-${symbol}-${timeframe}`;
+    const cached = assetCache.get(cacheKey);
+    
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+      renderCandles(cached.data);
+      return;
+    }
+    
+    const response = await fetch(
+      `${CONFIG.API_BASE}/api/v1/assets/${symbol}/candles?timeframe=${timeframe}&limit=100`
+    );
+    if (!response.ok) throw new Error('Failed to load candles');
+    const data = await response.json();
+    
+    assetCache.set(cacheKey, { data: data, timestamp: Date.now() });
+    renderCandles(data);
+  } catch (error) {
+    console.error('Error loading candles:', error);
+    document.getElementById('candles-tbody').innerHTML = 
+      `<tr><td colspan="8" style="color: red;">Error loading candles: ${error.message}</td></tr>`;
+  }
+}
+
+function renderCandles(data) {
+  const count = document.getElementById('candle-count');
+  count.textContent = `${data.pagination?.total?.toLocaleString() || '--'} total candles`;
+  
+  const tbody = document.getElementById('candles-tbody');
+  tbody.innerHTML = '';
+  
+  if (!data.candles || data.candles.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: var(--text-secondary);">No candles available</td></tr>';
+    return;
+  }
+  
+  for (const candle of data.candles) {
+    const enrichmentClass = candle.enrichment_status === 'complete' ? 'complete' : 'pending';
+    tbody.innerHTML += `
+      <tr>
+        <td>${formatDateTime(candle.timestamp)}</td>
+        <td>$${(candle.open || 0).toFixed(2)}</td>
+        <td>$${(candle.high || 0).toFixed(2)}</td>
+        <td>$${(candle.low || 0).toFixed(2)}</td>
+        <td>$${(candle.close || 0).toFixed(2)}</td>
+        <td>${(candle.volume || 0).toLocaleString()}</td>
+        <td>$${(candle.vwap || 0).toFixed(2)}</td>
+        <td><span class="badge ${enrichmentClass}">${candle.enrichment_status || 'pending'}</span></td>
+      </tr>
+    `;
+  }
+}
+
+async function loadEnrichmentData(symbol, timeframe = '1h') {
+  try {
+    const cacheKey = `enrichment-${symbol}-${timeframe}`;
+    const cached = assetCache.get(cacheKey);
+    
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+      renderEnrichment(cached.data);
+      return;
+    }
+    
+    const response = await fetch(
+      `${CONFIG.API_BASE}/api/v1/assets/${symbol}/enrichment?timeframe=${timeframe}`
+    );
+    if (!response.ok) throw new Error('Failed to load enrichment data');
+    const enrichment = await response.json();
+    
+    assetCache.set(cacheKey, { data: enrichment, timestamp: Date.now() });
+    renderEnrichment(enrichment);
+  } catch (error) {
+    console.error('Error loading enrichment:', error);
+    document.getElementById('enrichment-grid').innerHTML = 
+      `<p style="color: red;">Error loading enrichment data: ${error.message}</p>`;
+  }
+}
+
+function renderEnrichment(enrichment) {
+  const grid = document.getElementById('enrichment-grid');
+  
+  grid.innerHTML = `
+    <div class="enrichment-card">
+      <h4>Fetch Pipeline</h4>
+      <div class="metric">
+        <span class="metric-label">Success Rate</span>
+        <span class="metric-value">${(enrichment.fetch_metrics?.success_rate || 0).toFixed(1)}%</span>
+      </div>
+      <div class="metric">
+        <span class="metric-label">Avg Response</span>
+        <span class="metric-value">${enrichment.fetch_metrics?.avg_response_time || '--'} ms</span>
+      </div>
+      <div class="metric">
+        <span class="metric-label">Total Fetches</span>
+        <span class="metric-value">${enrichment.fetch_metrics?.total_fetches || '--'}</span>
+      </div>
+    </div>
+
+    <div class="enrichment-card">
+      <h4>Compute Pipeline</h4>
+      <div class="metric">
+        <span class="metric-label">Success Rate</span>
+        <span class="metric-value">${(enrichment.compute_metrics?.success_rate || 0).toFixed(1)}%</span>
+      </div>
+      <div class="metric">
+        <span class="metric-label">Avg Time</span>
+        <span class="metric-value">${enrichment.compute_metrics?.avg_compute_time || '--'} ms</span>
+      </div>
+      <div class="metric">
+        <span class="metric-label">Total Computations</span>
+        <span class="metric-value">${enrichment.compute_metrics?.total_computations || '--'}</span>
+      </div>
+    </div>
+
+    <div class="enrichment-card">
+      <h4>Data Quality</h4>
+      <div class="metric">
+        <span class="metric-label">Validation Rate</span>
+        <span class="metric-value">${(enrichment.quality_metrics?.validation_rate || 0).toFixed(1)}%</span>
+      </div>
+      <div class="metric">
+        <span class="metric-label">Quality Score</span>
+        <span class="metric-value">${(enrichment.quality_metrics?.quality_score || 0).toFixed(2)}</span>
+      </div>
+      <div class="metric">
+        <span class="metric-label">Missing Features</span>
+        <span class="metric-value">${enrichment.quality_metrics?.missing_features || 0}</span>
+      </div>
+    </div>
+  `;
+}
+
+function loadMoreCandles(symbol) {
+  // This would require pagination tracking
+  // For now, just reload with limit
+  loadCandleData(symbol, document.getElementById('candle-timeframe').value);
+}
+
+function getStatusClass(status) {
+  const s = (status || '').toLowerCase();
+  if (s.includes('healthy') || s.includes('complete')) return 'healthy';
+  if (s.includes('warning') || s.includes('partial')) return 'warning';
+  if (s.includes('stale') || s.includes('failed')) return 'stale';
+  return 'neutral';
+}
+
+function formatDateTime(date) {
+  if (!date) return '--';
+  try {
+    return new Date(date).toLocaleString();
+  } catch {
+    return date;
+  }
+}
+
+/**
+ * Quick Actions - Manual Backfill
+ */
+function triggerManualBackfill() {
+  // Select all symbols for backfill
+  selectedSymbols.clear();
+  state.symbols.forEach(s => selectedSymbols.add(s.symbol));
+  renderSymbolTable();
+  updateSelectionToolbar();
+  openBackfillModal();
+}
+
+/**
+ * Quick Actions - View Admin Panel (placeholder)
+ */
+function viewAdminPanel() {
+  alert('✓ Admin panel controls coming in Phase 2');
+}
+
+/**
+ * Open backfill modal
+ */
+function openBackfillModal() {
+  if (selectedSymbols.size === 0) {
+    alert('Please select at least one symbol');
+    return;
+  }
+  
+  const modal = document.getElementById('backfill-modal');
+  const displayDiv = document.getElementById('backfill-symbols');
+  
+  // Populate selected symbols
+  displayDiv.innerHTML = Array.from(selectedSymbols)
+    .map(s => `<span class="symbol-tag">${escapeHtml(s)}</span>`)
+    .join('');
+  
+  // Set default dates (last 30 days)
+  const today = new Date();
+  const thirtyDaysAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
+  
+  document.getElementById('backfill-end-date').value = today.toISOString().split('T')[0];
+  document.getElementById('backfill-start-date').value = thirtyDaysAgo.toISOString().split('T')[0];
+  
+  modal.style.display = 'flex';
+}
+
+/**
+ * Close backfill modal
+ */
+function closeBackfillModal() {
+  document.getElementById('backfill-modal').style.display = 'none';
+}
+
+/**
+ * Submit backfill operation
+ */
+async function submitBackfill() {
+  const symbols = getSelectedSymbols();
+  const startDate = document.getElementById('backfill-start-date').value;
+  const endDate = document.getElementById('backfill-end-date').value;
+  const timeframes = Array.from(document.querySelectorAll('#backfill-timeframes input:checked'))
+    .map(el => el.value);
+  
+  if (!startDate || !endDate || timeframes.length === 0) {
+    alert('Please fill in all required fields');
+    return;
+  }
+  
+  try {
+    console.log('Submitting backfill:', { symbols, startDate, endDate, timeframes });
+    
+    // Build query string
+    const params = new URLSearchParams();
+    symbols.forEach(s => params.append('symbols', s));
+    params.append('start_date', startDate);
+    params.append('end_date', endDate);
+    timeframes.forEach(t => params.append('timeframes', t));
+    
+    const response = await fetch(`${CONFIG.API_BASE}/api/v1/backfill?${params.toString()}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const result = await response.json();
+    
+    alert(`✓ Backfill started for ${symbols.length} symbols\nJob ID: ${result.job_id}`);
+    closeBackfillModal();
+    clearSelection();
+    refreshDashboard();
+  } catch (error) {
+    console.error('Backfill error:', error);
+    alert(`Error starting backfill: ${error.message}`);
+  }
+}
+
+/**
+ * Open enrichment modal
+ */
+function openEnrichModal() {
+  if (selectedSymbols.size === 0) {
+    alert('Please select at least one symbol');
+    return;
+  }
+  
+  const modal = document.getElementById('enrich-modal');
+  const displayDiv = document.getElementById('enrich-symbols');
+  
+  // Populate selected symbols
+  displayDiv.innerHTML = Array.from(selectedSymbols)
+    .map(s => `<span class="symbol-tag">${escapeHtml(s)}</span>`)
+    .join('');
+  
+  modal.style.display = 'flex';
+}
+
+/**
+ * Close enrichment modal
+ */
+function closeEnrichModal() {
+  document.getElementById('enrich-modal').style.display = 'none';
+}
+
+/**
+ * Submit enrichment operation
+ */
+async function submitEnrich() {
+  const symbols = getSelectedSymbols();
+  const timeframe = document.getElementById('enrich-timeframe').value;
+  
+  try {
+    console.log('Submitting enrichment:', { symbols, timeframe });
+    
+    // Build query string
+    const params = new URLSearchParams();
+    symbols.forEach(s => params.append('symbols', s));
+    params.append('timeframe', timeframe);
+    
+    const response = await fetch(`${CONFIG.API_BASE}/api/v1/enrich?${params.toString()}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const result = await response.json();
+    
+    alert(`✓ Enrichment started for ${symbols.length} symbols\nJob ID: ${result.job_id}`);
+    closeEnrichModal();
+    clearSelection();
+    refreshDashboard();
+  } catch (error) {
+    console.error('Enrichment error:', error);
+    alert(`Error starting enrichment: ${error.message}`);
+  }
+}
+
+/**
+ * Quick Actions - View API Docs
+ */
+function viewDocs() {
+  window.open('/docs', '_blank');
+}
+
+/**
+ * Setup collapsible sections (placeholder initialization)
+ */
+function setupCollapsibleSections() {
+  // This is called from DOMContentLoaded
+  // The actual toggle is handled by toggleSection()
 }
