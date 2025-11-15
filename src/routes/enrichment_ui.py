@@ -51,13 +51,13 @@ async def get_enrichment_dashboard_overview():
             symbol_stats = session.execute(text("""
                 SELECT 
                     COUNT(*) as total_symbols,
-                    SUM(CASE WHEN is_stale = false AND consecutive_failures = 0 THEN 1 ELSE 0 END) as healthy_symbols,
-                    SUM(CASE WHEN consecutive_failures > 0 AND consecutive_failures < 3 THEN 1 ELSE 0 END) as warning_symbols,
-                    SUM(CASE WHEN is_stale = true OR consecutive_failures >= 3 THEN 1 ELSE 0 END) as problem_symbols,
-                    MAX(last_enriched_at) as latest_enrichment,
-                    AVG(EXTRACT(EPOCH FROM (NOW() - last_enriched_at))) as avg_age_seconds
+                    SUM(CASE WHEN status = 'healthy' THEN 1 ELSE 0 END) as healthy_symbols,
+                    SUM(CASE WHEN status = 'warning' THEN 1 ELSE 0 END) as warning_symbols,
+                    SUM(CASE WHEN status IN ('stale', 'error') THEN 1 ELSE 0 END) as problem_symbols,
+                    MAX(last_enrichment_time) as latest_enrichment,
+                    AVG(EXTRACT(EPOCH FROM (NOW() - last_enrichment_time))) as avg_age_seconds
                 FROM enrichment_status
-                WHERE last_enriched_at IS NOT NULL
+                WHERE last_enrichment_time IS NOT NULL
             """)).first()
             
             total_symbols = symbol_stats[0] or 0
@@ -181,7 +181,7 @@ async def get_enrichment_job_status(symbol: str):
             # Get current enrichment status
             status_row = session.execute(text("""
                 SELECT 
-                    symbol, last_enriched_at, data_freshness_seconds, is_stale, consecutive_failures, last_error
+                    symbol, last_enrichment_time, data_age_seconds, status, error_message, last_successful_enrichment, records_available, quality_score, validation_rate
                 FROM enrichment_status
                 WHERE symbol = :symbol
             """), {"symbol": symbol}).first()
@@ -221,7 +221,7 @@ async def get_enrichment_job_status(symbol: str):
             last_compute_time_ms = compute_log[1] if compute_log else 0
             features_computed = compute_log[2] if compute_log else 0
             
-            # Get quality metrics
+            # Get quality metrics (optional, fall back to status_row values)
             quality_metrics = session.execute(text("""
                 SELECT avg_quality_score, validation_rate, data_completeness
                 FROM data_quality_metrics
@@ -230,18 +230,18 @@ async def get_enrichment_job_status(symbol: str):
                 LIMIT 1
             """), {"symbol": symbol}).first()
             
-            quality_score = quality_metrics[0] if quality_metrics else status_row[5]
-            validation_rate = quality_metrics[1] if quality_metrics else status_row[6]
+            quality_score = quality_metrics[0] if quality_metrics else status_row[7]
+            validation_rate = quality_metrics[1] if quality_metrics else status_row[8]
             
             return {
                 "symbol": symbol,
-                "status": status_row[1],  # enrichment_status.status
-                "last_enrichment": status_row[2].isoformat() if status_row[2] else None,
-                "last_successful_enrichment": status_row[3].isoformat() if status_row[3] else None,
-                "records_available": status_row[4],
+                "status": status_row[3],  # enrichment_status.status
+                "last_enrichment": status_row[1].isoformat() if status_row[1] else None,
+                "last_successful_enrichment": status_row[5].isoformat() if status_row[5] else None,
+                "records_available": status_row[6],
                 "quality_score": round(float(quality_score or 0), 2),
                 "validation_rate": round(float(validation_rate or 0), 2),
-                "data_age_seconds": status_row[8],
+                "data_age_seconds": status_row[2] or 0,
                 "last_fetch_success": last_fetch_success,
                 "last_fetch_time_ms": last_fetch_time_ms,
                 "records_fetched": records_fetched,
@@ -249,7 +249,7 @@ async def get_enrichment_job_status(symbol: str):
                 "last_compute_success": last_compute_success,
                 "last_compute_time_ms": last_compute_time_ms,
                 "features_computed": features_computed,
-                "error_message": status_row[7],
+                "error_message": status_row[4],
                 "next_scheduled_run": (_enrichment_scheduler.next_run_time.isoformat() if _enrichment_scheduler and _enrichment_scheduler.next_run_time else None),
                 "timestamp": datetime.utcnow().isoformat()
             }
@@ -435,12 +435,13 @@ async def get_enrichment_scheduler_health():
             except Exception:
                 db_health = "critical"
             
-            # Get symbol health distribution
+            # Get symbol health distribution (status values: 'healthy', 'warning', 'stale', 'error')
             symbol_health = session.execute(text("""
                 SELECT 
                     status,
                     COUNT(*) as count
                 FROM enrichment_status
+                WHERE status IS NOT NULL
                 GROUP BY status
             """)).fetchall()
             
