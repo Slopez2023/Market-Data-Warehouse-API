@@ -95,8 +95,7 @@ async def get_enrichment_dashboard_overview():
                     COUNT(*) as total_computations,
                     SUM(CASE WHEN success = true THEN 1 ELSE 0 END) as successful_computations,
                     SUM(CASE WHEN success = false THEN 1 ELSE 0 END) as failed_computations,
-                    AVG(computation_time_ms) as avg_computation_time_ms,
-                    SUM(features_computed) as total_features_computed
+                    AVG(computation_time_ms) as avg_computation_time_ms
                 FROM enrichment_compute_log
                 WHERE created_at > NOW() - INTERVAL '24 hours'
             """)).first()
@@ -105,7 +104,7 @@ async def get_enrichment_dashboard_overview():
             successful_computations = compute_metrics[1] or 0
             failed_computations = compute_metrics[2] or 0
             avg_computation_time_ms = compute_metrics[3] or 0
-            total_features_computed = compute_metrics[4] or 0
+            total_features_computed = total_computations  # Use computation count as proxy
             
             compute_success_rate = (successful_computations / total_computations * 100) if total_computations > 0 else 0
             
@@ -210,7 +209,7 @@ async def get_enrichment_job_status(symbol: str):
             
             # Get recent compute log for this symbol
             compute_log = session.execute(text("""
-                SELECT success, computation_time_ms, features_computed
+                SELECT success, computation_time_ms
                 FROM enrichment_compute_log
                 WHERE symbol = :symbol
                 ORDER BY created_at DESC
@@ -219,7 +218,7 @@ async def get_enrichment_job_status(symbol: str):
             
             last_compute_success = compute_log[0] if compute_log else None
             last_compute_time_ms = compute_log[1] if compute_log else 0
-            features_computed = compute_log[2] if compute_log else 0
+            features_computed = 1 if last_compute_success else 0  # Simplified: 1 if computed, 0 if not
             
             # Get quality metrics (optional, fall back to status_row values)
             quality_metrics = session.execute(text("""
@@ -351,8 +350,7 @@ async def get_enrichment_dashboard_metrics():
                     COUNT(*) as total_computations,
                     SUM(CASE WHEN success = true THEN 1 ELSE 0 END) as successful_computations,
                     SUM(CASE WHEN success = false THEN 1 ELSE 0 END) as failed_computations,
-                    AVG(computation_time_ms) as avg_computation_time_ms,
-                    SUM(features_computed) as total_features_computed
+                    AVG(computation_time_ms) as avg_computation_time_ms
                 FROM enrichment_compute_log
             """)).first()
             
@@ -360,7 +358,7 @@ async def get_enrichment_dashboard_metrics():
             successful_computations = compute_agg[1] or 0
             failed_computations = compute_agg[2] or 0
             avg_computation_time_ms = compute_agg[3] or 0
-            total_features_computed = compute_agg[4] or 0
+            total_features_computed = total_computations  # Use computation count as proxy
             
             compute_success_rate = (successful_computations / total_computations * 100) if total_computations > 0 else 0
             
