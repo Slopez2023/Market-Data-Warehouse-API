@@ -532,11 +532,11 @@ class AutoBackfillScheduler:
         try:
             # Fetch from Polygon based on asset class and timeframe
             candles = await self.polygon_client.fetch_range(
-                symbol,
-                timeframe,
-                start_date.strftime('%Y-%m-%d'),
-                end_date.strftime('%Y-%m-%d'),
-                is_crypto=(asset_class == "crypto")  # Pass asset class flag to normalize crypto symbols
+            symbol,
+            timeframe,
+            start=start_date.strftime('%Y-%m-%d'),
+            end=end_date.strftime('%Y-%m-%d'),
+            is_crypto=(asset_class == "crypto")  # Pass asset class flag to normalize crypto symbols
             )
             
             if not candles:

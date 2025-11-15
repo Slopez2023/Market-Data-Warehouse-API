@@ -42,25 +42,176 @@ const CACHE_TTL = 60000; // 1 minute
 // Selection state for bulk operations
 let selectedSymbols = new Set();
 
+// Backfill tracking state
+let activeBackfillJobs = new Map(); // job_id -> job data
+
+/**
+ * Restore selected symbols from localStorage
+ */
+function restoreSelectedSymbols() {
+  try {
+    const saved = localStorage.getItem("selected-symbols");
+    if (saved && saved.trim() !== "") {
+      const symbols = JSON.parse(saved);
+      if (Array.isArray(symbols)) {
+        selectedSymbols = new Set(symbols);
+        console.log(`Restored ${symbols.length} selected symbols from localStorage`);
+      } else {
+        console.warn("Invalid selected symbols format in localStorage");
+        selectedSymbols = new Set();
+      }
+    } else {
+      selectedSymbols = new Set();
+    }
+  } catch (e) {
+    console.warn("Could not restore selected symbols:", e);
+    selectedSymbols = new Set();
+  }
+}
+
+/**
+ * Persist selected symbols to localStorage
+ */
+function persistSelectedSymbols() {
+  try {
+    const symbolsArray = Array.from(selectedSymbols);
+    localStorage.setItem("selected-symbols", JSON.stringify(symbolsArray));
+    console.log(`Persisted ${symbolsArray.length} symbols to localStorage`);
+  } catch (e) {
+    console.error("Failed to persist selected symbols:", e);
+    // Silently fail - localStorage might be full or unavailable
+  }
+}
+
 /**
  * Initialize dashboard on page load
  */
 document.addEventListener("DOMContentLoaded", () => {
   console.log("Dashboard initializing...");
+  restoreSelectedSymbols();
   setupSymbolSearch();
   setupCollapsibleSections();
   setupSymbolTableClickHandlers();
+  setupKeyboardShortcuts();
   restoreSectionStates();
   refreshDashboard();
   setInterval(refreshDashboard, CONFIG.REFRESH_INTERVAL);
+});
 
+/**
+ * Setup keyboard shortcuts
+ */
+function setupKeyboardShortcuts() {
   document.addEventListener("keydown", (e) => {
-    if (e.ctrlKey && e.key === "r") {
+    // Ignore if user is typing in input
+    if (
+      ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName)
+    ) {
+      return;
+    }
+
+    const ctrlOrCmd = e.ctrlKey || e.metaKey;
+
+    // Ctrl/Cmd + R = Refresh dashboard
+    if (ctrlOrCmd && e.key.toLowerCase() === "r") {
       e.preventDefault();
       refreshDashboard();
+      return;
+    }
+
+    // ? = Show help modal
+    if (e.key === "?") {
+      e.preventDefault();
+      showKeyboardHelp();
+      return;
+    }
+
+    // S = Focus search box
+    if (e.key.toLowerCase() === "s") {
+      e.preventDefault();
+      const searchBox = document.getElementById("symbol-search");
+      if (searchBox) searchBox.focus();
+      return;
+    }
+
+    // ESC = Close modals
+    if (e.key === "Escape") {
+      closeAssetModal();
+      closeBackfillModal();
+      closeEnrichModal();
+      closeHelpModal();
+      return;
+    }
+
+    // B = Open backfill modal (if symbols selected)
+    if (e.key.toLowerCase() === "b" && selectedSymbols.size > 0) {
+      e.preventDefault();
+      openBackfillModal();
+      return;
+    }
+
+    // E = Open enrich modal (if symbols selected)
+    if (e.key.toLowerCase() === "e" && selectedSymbols.size > 0) {
+      e.preventDefault();
+      openEnrichModal();
+      return;
     }
   });
-});
+}
+
+/**
+ * Show keyboard shortcuts help modal
+ */
+function showKeyboardHelp() {
+  const helpHTML = `
+    <div id="help-modal" class="modal" style="display: flex;" role="dialog" aria-labelledby="help-modal-title" aria-modal="true">
+      <div class="modal-overlay" onclick="closeHelpModal()"></div>
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2 id="help-modal-title">Keyboard Shortcuts</h2>
+          <button class="modal-close" onclick="closeHelpModal()" aria-label="Close keyboard shortcuts dialog">×</button>
+        </div>
+        <div class="shortcuts-list">
+          <div class="shortcut-item">
+            <span class="shortcut-key">Ctrl/Cmd + R</span>
+            <span class="shortcut-desc">Refresh dashboard</span>
+          </div>
+          <div class="shortcut-item">
+            <span class="shortcut-key">S</span>
+            <span class="shortcut-desc">Focus symbol search</span>
+          </div>
+          <div class="shortcut-item">
+            <span class="shortcut-key">B</span>
+            <span class="shortcut-desc">Open backfill modal (with symbols selected)</span>
+          </div>
+          <div class="shortcut-item">
+            <span class="shortcut-key">E</span>
+            <span class="shortcut-desc">Open enrichment modal (with symbols selected)</span>
+          </div>
+          <div class="shortcut-item">
+            <span class="shortcut-key">ESC</span>
+            <span class="shortcut-desc">Close any modal</span>
+          </div>
+          <div class="shortcut-item">
+            <span class="shortcut-key">?</span>
+            <span class="shortcut-desc">Show this help</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.insertAdjacentHTML("beforeend", helpHTML);
+  // Focus on close button for keyboard accessibility
+  document.querySelector("#help-modal .modal-close").focus();
+}
+
+/**
+ * Close help modal
+ */
+function closeHelpModal() {
+  const modal = document.getElementById("help-modal");
+  if (modal) modal.remove();
+}
 
 /**
  * Toggle collapsible section
@@ -68,10 +219,13 @@ document.addEventListener("DOMContentLoaded", () => {
 function toggleSection(sectionName) {
   const section = document.querySelector(`[data-section="${sectionName}"]`);
   if (section) {
-    section.classList.toggle('collapsed');
+    section.classList.toggle("collapsed");
     // Persist preference in localStorage
-    const collapsed = section.classList.contains('collapsed');
-    localStorage.setItem(`section-${sectionName}`, collapsed ? 'collapsed' : 'expanded');
+    const collapsed = section.classList.contains("collapsed");
+    localStorage.setItem(
+      `section-${sectionName}`,
+      collapsed ? "collapsed" : "expanded"
+    );
   }
 }
 
@@ -79,12 +233,12 @@ function toggleSection(sectionName) {
  * Restore section states from localStorage
  */
 function restoreSectionStates() {
-  const sections = document.querySelectorAll('.collapsible-section');
-  sections.forEach(section => {
-    const sectionName = section.getAttribute('data-section');
+  const sections = document.querySelectorAll(".collapsible-section");
+  sections.forEach((section) => {
+    const sectionName = section.getAttribute("data-section");
     const state = localStorage.getItem(`section-${sectionName}`);
-    if (state === 'collapsed') {
-      section.classList.add('collapsed');
+    if (state === "collapsed") {
+      section.classList.add("collapsed");
     }
   });
 }
@@ -137,16 +291,18 @@ async function refreshDashboard() {
 function updateHealth(health, duration) {
   const isHealthy = health.status === "healthy";
   const statusBadge = document.getElementById("status-badge");
-  const apiStatus = document.getElementById("api-status");
+  const overallStatus = document.getElementById("overall-status");
   const responseTime = document.getElementById("response-time");
 
   statusBadge.className = `status-badge ${isHealthy ? "healthy" : "critical"}`;
   statusBadge.textContent = `● ${isHealthy ? "Healthy" : "Unhealthy"}`;
 
-  apiStatus.textContent = isHealthy ? "✓ Online" : "✗ Offline";
-  apiStatus.style.color = isHealthy ? "var(--success)" : "var(--danger)";
+  if (overallStatus) {
+    overallStatus.textContent = isHealthy ? "🟢 Healthy" : "🔴 Offline";
+    overallStatus.style.color = isHealthy ? "var(--success)" : "var(--danger)";
+  }
 
-  responseTime.textContent = `Response: ${duration.toFixed(0)} ms`;
+  responseTime.textContent = `${duration.toFixed(0)} ms`;
 }
 
 /**
@@ -299,8 +455,41 @@ async function updateSymbolGrid(status) {
     symbolTableState.allSymbols = data.symbols || [];
 
     if (symbolTableState.allSymbols.length === 0) {
-      container.innerHTML =
-        '<tr><td colspan="7" style="text-align: center; color: var(--text-secondary);">No symbols in database</td></tr>';
+      container.innerHTML = `
+        <tr>
+          <td colspan="8" style="text-align: center; padding: 60px 20px;">
+            <div style="color: var(--text-secondary);">
+              <div style="font-size: 56px; margin-bottom: 24px;">📊</div>
+              <h3 style="font-size: 24px; font-weight: 700; margin-bottom: 12px; color: var(--text-primary);">No Market Data Available</h3>
+              <p style="font-size: 15px; margin-bottom: 8px; line-height: 1.6;">
+                The database is currently empty. To get started, you need to load historical market data.
+              </p>
+              <p style="font-size: 14px; margin-bottom: 24px; color: var(--text-secondary); line-height: 1.6;">
+                Use the Backfill feature to import data for one or more symbols across your desired timeframes and date ranges.
+              </p>
+              
+              <div style="background: rgba(15, 147, 112, 0.05); border: 1px solid rgba(15, 147, 112, 0.2); border-radius: 8px; padding: 20px; margin: 24px 0; text-align: left; font-size: 13px;">
+                <h4 style="color: var(--text-primary); margin-bottom: 12px; font-size: 14px; font-weight: 600;">Getting Started Steps:</h4>
+                <ol style="margin: 0; padding-left: 20px; color: var(--text-secondary);">
+                  <li style="margin-bottom: 8px;">Click <strong>"Manual Backfill..."</strong> button above</li>
+                  <li style="margin-bottom: 8px;">Select symbols and date range (minimum 30 days recommended)</li>
+                  <li style="margin-bottom: 8px;">Choose timeframes: 5m, 15m, 1h, 1d (at least one required)</li>
+                  <li>Click "Start Backfill" to begin data import</li>
+                </ol>
+              </div>
+              
+              <div style="display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-bottom: 16px;">
+                <button class="btn btn-primary" onclick="triggerManualBackfill()" style="padding: 10px 24px; font-size: 14px;">Start Backfill Now</button>
+                <button class="btn btn-secondary" onclick="viewDocs()" style="padding: 10px 24px; font-size: 14px;">View API Documentation</button>
+              </div>
+              
+              <p style="font-size: 12px; margin-top: 20px; color: var(--text-secondary); border-top: 1px solid rgba(15, 147, 112, 0.2); padding-top: 16px;">
+                Once data is loaded, you'll see symbols listed here with quality metrics, validation rates, and data age information.
+              </p>
+            </div>
+          </td>
+        </tr>
+      `;
       updateSymbolCount(0, 0);
       return;
     }
@@ -347,14 +536,17 @@ function renderSymbolTable() {
 
   // Render rows
   const html = filtered
-    .map(
-      (symbol) => {
-        const isSelected = selectedSymbols.has(symbol.symbol);
-        return `
-    <tr class="${isSelected ? 'selected' : ''}">
+    .map((symbol) => {
+      const isSelected = selectedSymbols.has(symbol.symbol);
+      return `
+    <tr class="${isSelected ? "selected" : ""}">
       <td style="width: 40px;">
-        <input type="checkbox" class="symbol-checkbox" data-symbol="${escapeHtml(symbol.symbol)}" 
-               ${isSelected ? 'checked' : ''} onchange="toggleSymbolSelection(this)">
+        <input type="checkbox" class="symbol-checkbox" data-symbol="${escapeHtml(
+          symbol.symbol
+        )}" 
+               ${
+                 isSelected ? "checked" : ""
+               } onchange="toggleSymbolSelection(this)">
       </td>
       <td><span class="symbol-name">${escapeHtml(symbol.symbol)}</span></td>
       <td>${formatNumber(symbol.records)}</td>
@@ -369,13 +561,25 @@ function renderSymbolTable() {
       </td>
     </tr>
   `;
-      }
-    )
+    })
     .join("");
 
-  container.innerHTML =
-    html ||
-    '<tr><td colspan="8" style="text-align: center; color: var(--text-secondary);">No matching symbols</td></tr>';
+  if (!html) {
+    container.innerHTML = `
+      <tr>
+        <td colspan="8" style="text-align: center; padding: 40px 20px;">
+          <div style="color: var(--text-secondary);">
+            <div style="font-size: 32px; margin-bottom: 12px;">🔍</div>
+            <p style="font-size: 16px; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">No matching symbols</p>
+            <p style="font-size: 13px;">Try adjusting your search term or status filter</p>
+            <button class="btn btn-secondary" onclick="document.getElementById('symbol-search').value = ''; document.getElementById('status-filter').value = ''; setupSymbolSearch();" style="margin-top: 16px;">Clear Filters</button>
+          </div>
+        </td>
+      </tr>
+    `;
+  } else {
+    container.innerHTML = html;
+  }
   updateSymbolCount(filtered.length, symbolTableState.allSymbols.length);
   updateSortIndicators();
 }
@@ -422,11 +626,11 @@ function setupSymbolSearch() {
  * Setup symbol table row click handlers
  */
 function setupSymbolTableClickHandlers() {
-  document.addEventListener('click', (e) => {
-    const row = e.target.closest('#symbol-tbody tr');
+  document.addEventListener("click", (e) => {
+    const row = e.target.closest("#symbol-tbody tr");
     if (row && !row.querySelector('input[type="checkbox"]')) {
       // Get symbol from first column after checkbox column
-      const symbolCell = row.querySelector('td:nth-child(2) .symbol-name');
+      const symbolCell = row.querySelector("td:nth-child(2) .symbol-name");
       if (symbolCell) {
         const symbol = symbolCell.textContent;
         openAssetModal(symbol);
@@ -439,17 +643,18 @@ function setupSymbolTableClickHandlers() {
  * Toggle individual symbol selection
  */
 function toggleSymbolSelection(checkbox) {
-  const symbol = checkbox.getAttribute('data-symbol');
-  const row = checkbox.closest('tr');
-  
+  const symbol = checkbox.getAttribute("data-symbol");
+  const row = checkbox.closest("tr");
+
   if (checkbox.checked) {
     selectedSymbols.add(symbol);
-    row.classList.add('selected');
+    row.classList.add("selected");
   } else {
     selectedSymbols.delete(symbol);
-    row.classList.remove('selected');
+    row.classList.remove("selected");
   }
-  
+
+  persistSelectedSymbols();
   updateSelectionToolbar();
   updateSelectAllCheckbox();
 }
@@ -458,8 +663,8 @@ function toggleSymbolSelection(checkbox) {
  * Toggle select all checkboxes
  */
 function toggleSelectAll(checkbox) {
-  const checkboxes = document.querySelectorAll('.symbol-checkbox');
-  checkboxes.forEach(cb => {
+  const checkboxes = document.querySelectorAll(".symbol-checkbox");
+  checkboxes.forEach((cb) => {
     cb.checked = checkbox.checked;
     toggleSymbolSelection(cb);
   });
@@ -469,13 +674,15 @@ function toggleSelectAll(checkbox) {
  * Update the "select all" checkbox state based on current selections
  */
 function updateSelectAllCheckbox() {
-  const selectAll = document.getElementById('select-all-symbols');
-  const checkboxes = document.querySelectorAll('.symbol-checkbox');
-  const checked = document.querySelectorAll('.symbol-checkbox:checked');
-  
+  const selectAll = document.getElementById("select-all-symbols");
+  const checkboxes = document.querySelectorAll(".symbol-checkbox");
+  const checked = document.querySelectorAll(".symbol-checkbox:checked");
+
   if (selectAll) {
-    selectAll.checked = checkboxes.length > 0 && checkboxes.length === checked.length;
-    selectAll.indeterminate = checked.length > 0 && checkboxes.length !== checked.length;
+    selectAll.checked =
+      checkboxes.length > 0 && checkboxes.length === checked.length;
+    selectAll.indeterminate =
+      checked.length > 0 && checkboxes.length !== checked.length;
   }
 }
 
@@ -483,14 +690,16 @@ function updateSelectAllCheckbox() {
  * Update toolbar visibility and count
  */
 function updateSelectionToolbar() {
-  const toolbar = document.getElementById('selection-toolbar');
-  const count = document.getElementById('selection-count');
-  
+  const toolbar = document.getElementById("selection-toolbar");
+  const count = document.getElementById("selection-count");
+
   if (selectedSymbols.size > 0) {
-    toolbar.style.display = 'flex';
-    count.textContent = `${selectedSymbols.size} symbol${selectedSymbols.size !== 1 ? 's' : ''} selected`;
+    toolbar.style.display = "flex";
+    count.textContent = `${selectedSymbols.size} symbol${
+      selectedSymbols.size !== 1 ? "s" : ""
+    } selected`;
   } else {
-    toolbar.style.display = 'none';
+    toolbar.style.display = "none";
   }
 }
 
@@ -499,9 +708,14 @@ function updateSelectionToolbar() {
  */
 function clearSelection() {
   selectedSymbols.clear();
-  document.querySelectorAll('.symbol-checkbox').forEach(cb => cb.checked = false);
-  document.querySelectorAll('.symbol-table tbody tr').forEach(row => row.classList.remove('selected'));
-  document.getElementById('select-all-symbols').checked = false;
+  persistSelectedSymbols();
+  document
+    .querySelectorAll(".symbol-checkbox")
+    .forEach((cb) => (cb.checked = false));
+  document
+    .querySelectorAll(".symbol-table tbody tr")
+    .forEach((row) => row.classList.remove("selected"));
+  document.getElementById("select-all-symbols").checked = false;
   updateSelectionToolbar();
 }
 
@@ -679,7 +893,8 @@ function handleError(error) {
  * Open API docs
  */
 function viewDocs() {
-  window.open(`${CONFIG.API_BASE}/docs`, "_blank");
+  // Open FastAPI Swagger UI docs at root /docs endpoint
+  window.open("/docs", "_blank");
 }
 
 /**
@@ -958,7 +1173,7 @@ async function runAllTests() {
     statusEl.textContent = "✗ Test Execution Error";
     summaryEl.textContent = `Error: ${error.message}`;
     outputEl.textContent = "Failed to run tests. Check API logs for details.";
-    }
+  }
 }
 
 // ============================================================
@@ -967,38 +1182,85 @@ async function runAllTests() {
 
 async function openAssetModal(symbol) {
   currentSymbol = symbol;
-  document.getElementById('asset-modal').style.display = 'flex';
-  document.getElementById('modal-symbol').textContent = symbol;
-  
+  const modal = document.getElementById("asset-modal");
+  modal.style.display = "flex";
+  modal.setAttribute("role", "dialog");
+  modal.setAttribute("aria-labelledby", "modal-symbol");
+  modal.setAttribute("aria-modal", "true");
+
+  document.getElementById("modal-symbol").textContent = symbol;
+
   // Load overview by default
   await loadAssetOverview(symbol);
+
+  // Focus close button for accessibility
+  modal.querySelector(".modal-close").focus();
 }
 
 function closeAssetModal() {
-  document.getElementById('asset-modal').style.display = 'none';
+  document.getElementById("asset-modal").style.display = "none";
   currentSymbol = null;
 }
 
 function switchAssetTab(tabName) {
+  // Ensure current symbol is set
+  if (!currentSymbol) {
+    console.warn("No current symbol set for tab switch");
+    return;
+  }
+
   // Hide all tabs
-  document.getElementById('tab-overview').style.display = 'none';
-  document.getElementById('tab-candles').style.display = 'none';
-  document.getElementById('tab-enrichment').style.display = 'none';
-  
-  // Remove active class from buttons
-  document.querySelectorAll('.asset-tab-btn').forEach(btn => {
-    btn.classList.remove('active');
+  const tabs = ["overview", "candles", "enrichment"];
+  tabs.forEach((tab) => {
+    const element = document.getElementById(`tab-${tab}`);
+    if (element) element.style.display = "none";
   });
-  
+
+  // Update button states and ARIA attributes
+  document.querySelectorAll(".asset-tab-btn").forEach((btn) => {
+    btn.classList.remove("active");
+    btn.setAttribute("aria-selected", "false");
+  });
+
   // Show selected tab
-  document.getElementById(`tab-${tabName}`).style.display = 'block';
-  event.target.classList.add('active');
+  const tabElement = document.getElementById(`tab-${tabName}`);
+  if (tabElement) {
+    tabElement.style.display = "block";
+  }
   
-  // Load data if needed
-  if (tabName === 'candles') {
-    loadCandleData(currentSymbol, '1h');
-  } else if (tabName === 'enrichment') {
-    loadEnrichmentData(currentSymbol, '1h');
+  // Set active button and update ARIA using event target or find button
+  const buttons = document.querySelectorAll(".asset-tab-btn");
+  let activeBtn = null;
+  
+  if (event && event.target) {
+    activeBtn = event.target.closest(".asset-tab-btn");
+  } else {
+    // Find button by matching tab name in onclick handler
+    for (const btn of buttons) {
+      if (btn.getAttribute("onclick")?.includes(tabName)) {
+        activeBtn = btn;
+        break;
+      }
+    }
+  }
+  
+  if (activeBtn) {
+    activeBtn.classList.add("active");
+    activeBtn.setAttribute("aria-selected", "true");
+  }
+
+  // Load data for specific tabs only if modal is visible
+  const modal = document.getElementById("asset-modal");
+  if (modal && modal.style.display === "flex") {
+    if (tabName === "candles") {
+      // Get selected timeframe if available, default to 1h
+      const timeframeSelect = document.getElementById("candle-timeframe");
+      const timeframe = timeframeSelect ? timeframeSelect.value : "1h";
+      loadCandleData(currentSymbol, timeframe);
+    } else if (tabName === "enrichment") {
+      // Always use 1h for enrichment view
+      loadEnrichmentData(currentSymbol, "1h");
+    }
   }
 }
 
@@ -1006,29 +1268,30 @@ async function loadAssetOverview(symbol) {
   try {
     const cacheKey = `asset-${symbol}`;
     const cached = assetCache.get(cacheKey);
-    
+
     if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
       renderOverview(cached.data);
       return;
     }
-    
+
     const response = await fetch(`${CONFIG.API_BASE}/api/v1/assets/${symbol}`);
-    if (!response.ok) throw new Error('Failed to load asset data');
+    if (!response.ok) throw new Error("Failed to load asset data");
     const asset = await response.json();
-    
+
     assetCache.set(cacheKey, { data: asset, timestamp: Date.now() });
     renderOverview(asset);
   } catch (error) {
-    console.error('Error loading asset overview:', error);
-    document.getElementById('overview-grid').innerHTML = 
-      `<p style="color: red;">Error loading asset data: ${error.message}</p>`;
+    console.error("Error loading asset overview:", error);
+    document.getElementById(
+      "overview-grid"
+    ).innerHTML = `<p style="color: red;">Error loading asset data: ${error.message}</p>`;
   }
 }
 
 function renderOverview(asset) {
-  const grid = document.getElementById('overview-grid');
+  const grid = document.getElementById("overview-grid");
   const statusClass = getStatusClass(asset.status);
-  
+
   grid.innerHTML = `
     <div class="stat-box">
       <span class="stat-label">Status</span>
@@ -1040,18 +1303,20 @@ function renderOverview(asset) {
     </div>
     <div class="stat-box">
       <span class="stat-label">Data Age</span>
-      <span class="stat-value">${asset.data_age_hours || '--'} hours</span>
+      <span class="stat-value">${asset.data_age_hours || "--"} hours</span>
     </div>
     <div class="stat-box">
       <span class="stat-label">Quality Score</span>
-      <span class="stat-value">${(asset.quality?.quality_score * 100).toFixed(1) || '--'}%</span>
+      <span class="stat-value">${
+        (asset.quality?.quality_score * 100).toFixed(1) || "--"
+      }%</span>
     </div>
   `;
-  
+
   // Populate timeframes table
-  const tbody = document.getElementById('timeframes-tbody');
-  tbody.innerHTML = '';
-  
+  const tbody = document.getElementById("timeframes-tbody");
+  tbody.innerHTML = "";
+
   for (const [tf, data] of Object.entries(asset.timeframes || {})) {
     const statusClass = getStatusClass(data.status);
     tbody.innerHTML += `
@@ -1065,45 +1330,63 @@ function renderOverview(asset) {
   }
 }
 
-async function loadCandleData(symbol, timeframe = '1h') {
+async function loadCandleData(symbol, timeframe = "1h") {
   try {
+    // Ensure modal is open
+    const modal = document.getElementById("asset-modal");
+    if (modal.style.display !== "flex") {
+      return;
+    }
+
     const cacheKey = `candles-${symbol}-${timeframe}`;
     const cached = assetCache.get(cacheKey);
-    
+
     if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
       renderCandles(cached.data);
       return;
     }
-    
+
     const response = await fetch(
       `${CONFIG.API_BASE}/api/v1/assets/${symbol}/candles?timeframe=${timeframe}&limit=100`
     );
-    if (!response.ok) throw new Error('Failed to load candles');
+    if (!response.ok) throw new Error("Failed to load candles");
     const data = await response.json();
-    
+
     assetCache.set(cacheKey, { data: data, timestamp: Date.now() });
     renderCandles(data);
   } catch (error) {
-    console.error('Error loading candles:', error);
-    document.getElementById('candles-tbody').innerHTML = 
-      `<tr><td colspan="8" style="color: red;">Error loading candles: ${error.message}</td></tr>`;
+    console.error("Error loading candles:", error);
+    const tbody = document.getElementById("candles-tbody");
+    if (tbody) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="8" style="text-align: center; padding: 20px; color: var(--danger);">
+            Error loading candles: ${escapeHtml(error.message)}
+          </td>
+        </tr>
+      `;
+    }
   }
 }
 
 function renderCandles(data) {
-  const count = document.getElementById('candle-count');
-  count.textContent = `${data.pagination?.total?.toLocaleString() || '--'} total candles`;
-  
-  const tbody = document.getElementById('candles-tbody');
-  tbody.innerHTML = '';
-  
+  const count = document.getElementById("candle-count");
+  count.textContent = `${
+    data.pagination?.total?.toLocaleString() || "--"
+  } total candles`;
+
+  const tbody = document.getElementById("candles-tbody");
+  tbody.innerHTML = "";
+
   if (!data.candles || data.candles.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: var(--text-secondary);">No candles available</td></tr>';
+    tbody.innerHTML =
+      '<tr><td colspan="8" style="text-align: center; color: var(--text-secondary);">No candles available</td></tr>';
     return;
   }
-  
+
   for (const candle of data.candles) {
-    const enrichmentClass = candle.enrichment_status === 'complete' ? 'complete' : 'pending';
+    const enrichmentClass =
+      candle.enrichment_status === "complete" ? "complete" : "pending";
     tbody.innerHTML += `
       <tr>
         <td>${formatDateTime(candle.timestamp)}</td>
@@ -1113,54 +1396,74 @@ function renderCandles(data) {
         <td>$${(candle.close || 0).toFixed(2)}</td>
         <td>${(candle.volume || 0).toLocaleString()}</td>
         <td>$${(candle.vwap || 0).toFixed(2)}</td>
-        <td><span class="badge ${enrichmentClass}">${candle.enrichment_status || 'pending'}</span></td>
+        <td><span class="badge ${enrichmentClass}">${
+      candle.enrichment_status || "pending"
+    }</span></td>
       </tr>
     `;
   }
 }
 
-async function loadEnrichmentData(symbol, timeframe = '1h') {
+async function loadEnrichmentData(symbol, timeframe = "1h") {
   try {
+    // Ensure modal is open
+    const modal = document.getElementById("asset-modal");
+    if (modal.style.display !== "flex") {
+      return;
+    }
+
     const cacheKey = `enrichment-${symbol}-${timeframe}`;
     const cached = assetCache.get(cacheKey);
-    
+
     if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
       renderEnrichment(cached.data);
       return;
     }
-    
+
     const response = await fetch(
       `${CONFIG.API_BASE}/api/v1/assets/${symbol}/enrichment?timeframe=${timeframe}`
     );
-    if (!response.ok) throw new Error('Failed to load enrichment data');
+    if (!response.ok) throw new Error("Failed to load enrichment data");
     const enrichment = await response.json();
-    
+
     assetCache.set(cacheKey, { data: enrichment, timestamp: Date.now() });
     renderEnrichment(enrichment);
   } catch (error) {
-    console.error('Error loading enrichment:', error);
-    document.getElementById('enrichment-grid').innerHTML = 
-      `<p style="color: red;">Error loading enrichment data: ${error.message}</p>`;
+    console.error("Error loading enrichment:", error);
+    const grid = document.getElementById("enrichment-grid");
+    if (grid) {
+      grid.innerHTML = `
+        <div style="grid-column: 1 / -1; text-align: center; padding: 20px; color: var(--danger);">
+          Error loading enrichment data: ${escapeHtml(error.message)}
+        </div>
+      `;
+    }
   }
 }
 
 function renderEnrichment(enrichment) {
-  const grid = document.getElementById('enrichment-grid');
-  
+  const grid = document.getElementById("enrichment-grid");
+
   grid.innerHTML = `
     <div class="enrichment-card">
       <h4>Fetch Pipeline</h4>
       <div class="metric">
         <span class="metric-label">Success Rate</span>
-        <span class="metric-value">${(enrichment.fetch_metrics?.success_rate || 0).toFixed(1)}%</span>
+        <span class="metric-value">${(
+          enrichment.fetch_metrics?.success_rate || 0
+        ).toFixed(1)}%</span>
       </div>
       <div class="metric">
         <span class="metric-label">Avg Response</span>
-        <span class="metric-value">${enrichment.fetch_metrics?.avg_response_time || '--'} ms</span>
+        <span class="metric-value">${
+          enrichment.fetch_metrics?.avg_response_time || "--"
+        } ms</span>
       </div>
       <div class="metric">
         <span class="metric-label">Total Fetches</span>
-        <span class="metric-value">${enrichment.fetch_metrics?.total_fetches || '--'}</span>
+        <span class="metric-value">${
+          enrichment.fetch_metrics?.total_fetches || "--"
+        }</span>
       </div>
     </div>
 
@@ -1168,15 +1471,21 @@ function renderEnrichment(enrichment) {
       <h4>Compute Pipeline</h4>
       <div class="metric">
         <span class="metric-label">Success Rate</span>
-        <span class="metric-value">${(enrichment.compute_metrics?.success_rate || 0).toFixed(1)}%</span>
+        <span class="metric-value">${(
+          enrichment.compute_metrics?.success_rate || 0
+        ).toFixed(1)}%</span>
       </div>
       <div class="metric">
         <span class="metric-label">Avg Time</span>
-        <span class="metric-value">${enrichment.compute_metrics?.avg_compute_time || '--'} ms</span>
+        <span class="metric-value">${
+          enrichment.compute_metrics?.avg_compute_time || "--"
+        } ms</span>
       </div>
       <div class="metric">
         <span class="metric-label">Total Computations</span>
-        <span class="metric-value">${enrichment.compute_metrics?.total_computations || '--'}</span>
+        <span class="metric-value">${
+          enrichment.compute_metrics?.total_computations || "--"
+        }</span>
       </div>
     </div>
 
@@ -1184,15 +1493,21 @@ function renderEnrichment(enrichment) {
       <h4>Data Quality</h4>
       <div class="metric">
         <span class="metric-label">Validation Rate</span>
-        <span class="metric-value">${(enrichment.quality_metrics?.validation_rate || 0).toFixed(1)}%</span>
+        <span class="metric-value">${(
+          enrichment.quality_metrics?.validation_rate || 0
+        ).toFixed(1)}%</span>
       </div>
       <div class="metric">
         <span class="metric-label">Quality Score</span>
-        <span class="metric-value">${(enrichment.quality_metrics?.quality_score || 0).toFixed(2)}</span>
+        <span class="metric-value">${(
+          enrichment.quality_metrics?.quality_score || 0
+        ).toFixed(2)}</span>
       </div>
       <div class="metric">
         <span class="metric-label">Missing Features</span>
-        <span class="metric-value">${enrichment.quality_metrics?.missing_features || 0}</span>
+        <span class="metric-value">${
+          enrichment.quality_metrics?.missing_features || 0
+        }</span>
       </div>
     </div>
   `;
@@ -1201,19 +1516,19 @@ function renderEnrichment(enrichment) {
 function loadMoreCandles(symbol) {
   // This would require pagination tracking
   // For now, just reload with limit
-  loadCandleData(symbol, document.getElementById('candle-timeframe').value);
+  loadCandleData(symbol, document.getElementById("candle-timeframe").value);
 }
 
 function getStatusClass(status) {
-  const s = (status || '').toLowerCase();
-  if (s.includes('healthy') || s.includes('complete')) return 'healthy';
-  if (s.includes('warning') || s.includes('partial')) return 'warning';
-  if (s.includes('stale') || s.includes('failed')) return 'stale';
-  return 'neutral';
+  const s = (status || "").toLowerCase();
+  if (s.includes("healthy") || s.includes("complete")) return "healthy";
+  if (s.includes("warning") || s.includes("partial")) return "warning";
+  if (s.includes("stale") || s.includes("failed")) return "stale";
+  return "neutral";
 }
 
 function formatDateTime(date) {
-  if (!date) return '--';
+  if (!date) return "--";
   try {
     return new Date(date).toLocaleString();
   } catch {
@@ -1227,17 +1542,31 @@ function formatDateTime(date) {
 function triggerManualBackfill() {
   // Select all symbols for backfill
   selectedSymbols.clear();
-  state.symbols.forEach(s => selectedSymbols.add(s.symbol));
-  renderSymbolTable();
-  updateSelectionToolbar();
-  openBackfillModal();
+  if (state.symbols && state.symbols.length > 0) {
+    state.symbols.forEach((s) => selectedSymbols.add(s.symbol));
+    renderSymbolTable();
+    updateSelectionToolbar();
+    persistSelectedSymbols();
+    openBackfillModal();
+  } else {
+    showValidationError("No symbols available for backfill. Please ensure symbols are loaded first.");
+  }
 }
 
 /**
  * Quick Actions - View Admin Panel (placeholder)
  */
 function viewAdminPanel() {
-  alert('✓ Admin panel controls coming in Phase 2');
+  // Scroll to admin section
+  const adminSection = document.querySelector('.admin-section');
+  if (adminSection) {
+    adminSection.scrollIntoView({ behavior: 'smooth' });
+    // Open the section if collapsed
+    const sectionContent = adminSection.querySelector('.section-content');
+    if (sectionContent && sectionContent.style.display === 'none') {
+      toggleSection('admin');
+    }
+  }
 }
 
 /**
@@ -1245,33 +1574,141 @@ function viewAdminPanel() {
  */
 function openBackfillModal() {
   if (selectedSymbols.size === 0) {
-    alert('Please select at least one symbol');
+    showValidationError("Please select at least one symbol");
     return;
   }
-  
-  const modal = document.getElementById('backfill-modal');
-  const displayDiv = document.getElementById('backfill-symbols');
-  
+
+  const modal = document.getElementById("backfill-modal");
+  const displayDiv = document.getElementById("backfill-symbols");
+
   // Populate selected symbols
-  displayDiv.innerHTML = Array.from(selectedSymbols)
-    .map(s => `<span class="symbol-tag">${escapeHtml(s)}</span>`)
-    .join('');
+  const symbolsHTML = Array.from(selectedSymbols)
+    .map((s) => `<span class="symbol-tag">${escapeHtml(s)}</span>`)
+    .join("");
   
+  displayDiv.innerHTML = symbolsHTML || '<span style="color: var(--text-secondary);">No symbols selected</span>';
+
   // Set default dates (last 30 days)
   const today = new Date();
   const thirtyDaysAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+  document.getElementById("backfill-end-date").value = today
+    .toISOString()
+    .split("T")[0];
+  document.getElementById("backfill-start-date").value = thirtyDaysAgo
+    .toISOString()
+    .split("T")[0];
+
+  // Check at least one timeframe is selected by default
+  ensureDefaultTimeframe();
+
+  modal.style.display = "flex";
   
-  document.getElementById('backfill-end-date').value = today.toISOString().split('T')[0];
-  document.getElementById('backfill-start-date').value = thirtyDaysAgo.toISOString().split('T')[0];
-  
-  modal.style.display = 'flex';
+  // Set focus trap for accessibility
+  setupModalFocusTrap(modal);
+
+  // Focus first input for accessibility
+  const firstInput = modal.querySelector(".form-input");
+  if (firstInput) {
+    setTimeout(() => firstInput.focus(), 100);
+  }
 }
 
 /**
  * Close backfill modal
  */
 function closeBackfillModal() {
-  document.getElementById('backfill-modal').style.display = 'none';
+  document.getElementById("backfill-modal").style.display = "none";
+}
+
+/**
+ * Ensure at least one timeframe is checked by default
+ */
+function ensureDefaultTimeframe() {
+  const checkboxes = document.querySelectorAll("#backfill-timeframes input");
+  const anyChecked = Array.from(checkboxes).some(cb => cb.checked);
+  
+  if (!anyChecked && checkboxes.length > 0) {
+    checkboxes[2].checked = true; // Default to 1h
+    console.log("Default timeframe (1h) selected");
+  }
+}
+
+/**
+ * Setup keyboard focus trap for modal
+ * Ensures tab focus stays within modal when open
+ */
+function setupModalFocusTrap(modal) {
+  const focusableElements = modal.querySelectorAll(
+    'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+  );
+  
+  if (focusableElements.length === 0) return;
+  
+  const firstElement = focusableElements[0];
+  const lastElement = focusableElements[focusableElements.length - 1];
+  
+  modal.addEventListener("keydown", (e) => {
+    if (e.key !== "Tab") return;
+    
+    if (e.shiftKey) {
+      // Shift + Tab: move focus backward
+      if (document.activeElement === firstElement) {
+        e.preventDefault();
+        lastElement.focus();
+      }
+    } else {
+      // Tab: move focus forward
+      if (document.activeElement === lastElement) {
+        e.preventDefault();
+        firstElement.focus();
+      }
+    }
+  });
+}
+
+/**
+ * Validate timeframe selection and add visual feedback
+ */
+function validateTimeframeSelection(containerSelector) {
+  const checkboxes = document.querySelectorAll(containerSelector + " input[type='checkbox']");
+  const anyChecked = Array.from(checkboxes).some(cb => cb.checked);
+  
+  if (!anyChecked) {
+    // Add visual indicator to the fieldset
+    const fieldset = document.querySelector(containerSelector).closest("fieldset");
+    if (fieldset) {
+      fieldset.style.borderLeft = "3px solid var(--danger)";
+    }
+    return false;
+  }
+  
+  // Remove error styling if valid
+  const fieldset = document.querySelector(containerSelector).closest("fieldset");
+  if (fieldset) {
+    fieldset.style.borderLeft = "";
+  }
+  
+  return true;
+}
+
+/**
+ * Show validation error in a user-friendly way
+ */
+function showValidationError(message) {
+  const alertsContainer = document.getElementById("alerts");
+  const errorHTML = `
+    <div class="alert critical" style="margin-bottom: 16px;">
+      <span>⚠️ ${escapeHtml(message)}</span>
+    </div>
+  `;
+  alertsContainer.insertAdjacentHTML("afterbegin", errorHTML);
+  
+  // Auto-dismiss after 5 seconds
+  setTimeout(() => {
+    const alert = alertsContainer.querySelector(".alert.critical");
+    if (alert) alert.remove();
+  }, 5000);
 }
 
 /**
@@ -1279,41 +1716,288 @@ function closeBackfillModal() {
  */
 async function submitBackfill() {
   const symbols = getSelectedSymbols();
-  const startDate = document.getElementById('backfill-start-date').value;
-  const endDate = document.getElementById('backfill-end-date').value;
-  const timeframes = Array.from(document.querySelectorAll('#backfill-timeframes input:checked'))
-    .map(el => el.value);
-  
-  if (!startDate || !endDate || timeframes.length === 0) {
-    alert('Please fill in all required fields');
-    return;
+  const startDate = document.getElementById("backfill-start-date").value;
+  const endDate = document.getElementById("backfill-end-date").value;
+  const timeframes = Array.from(
+    document.querySelectorAll("#backfill-timeframes input:checked")
+  ).map((el) => el.value);
+
+  // Validation
+  const errors = [];
+
+  if (!symbols || symbols.length === 0) {
+    errors.push("No symbols selected");
+  }
+  if (!startDate) {
+    errors.push("Start date is required");
+  }
+  if (!endDate) {
+    errors.push("End date is required");
+  }
+  if (startDate && endDate && new Date(startDate) >= new Date(endDate)) {
+    errors.push("Start date must be before end date");
   }
   
+  // Validate timeframe selection
+  if (!validateTimeframeSelection("#backfill-timeframes")) {
+    errors.push("Please select at least one timeframe");
+  }
+
+  if (errors.length > 0) {
+    showValidationError(errors.join(", "));
+    return;
+  }
+
   try {
-    console.log('Submitting backfill:', { symbols, startDate, endDate, timeframes });
-    
+    console.log("Submitting backfill:", {
+      symbols,
+      startDate,
+      endDate,
+      timeframes,
+    });
+
     // Build query string
     const params = new URLSearchParams();
-    symbols.forEach(s => params.append('symbols', s));
-    params.append('start_date', startDate);
-    params.append('end_date', endDate);
-    timeframes.forEach(t => params.append('timeframes', t));
-    
-    const response = await fetch(`${CONFIG.API_BASE}/api/v1/backfill?${params.toString()}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' }
-    });
-    
+    symbols.forEach((s) => params.append("symbols", s));
+    params.append("start_date", startDate);
+    params.append("end_date", endDate);
+    timeframes.forEach((t) => params.append("timeframes", t));
+
+    const response = await fetch(
+      `${CONFIG.API_BASE}/api/v1/backfill?${params.toString()}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      }
+    );
+
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const result = await response.json();
-    
-    alert(`✓ Backfill started for ${symbols.length} symbols\nJob ID: ${result.job_id}`);
+
+    // Track this job
+    activeBackfillJobs.set(result.job_id, {
+      symbols: symbols,
+      timeframes: timeframes,
+      startTime: Date.now(),
+      lastUpdate: Date.now()
+    });
+
     closeBackfillModal();
     clearSelection();
-    refreshDashboard();
+    
+    // Show progress modal immediately
+    showBackfillProgressModal(result.job_id);
+    
+    // Start polling for status
+    pollBackfillStatus(result.job_id);
+    
   } catch (error) {
-    console.error('Backfill error:', error);
-    alert(`Error starting backfill: ${error.message}`);
+    console.error("Backfill error:", error);
+    showValidationError(`Error starting backfill: ${error.message}`);
+  }
+}
+
+/**
+ * Show progress modal for backfill job
+ */
+function showBackfillProgressModal(jobId) {
+  const modalHTML = `
+    <div id="backfill-progress-modal" class="modal" style="display: flex;" role="dialog" aria-labelledby="backfill-progress-title" aria-modal="true">
+      <div class="modal-overlay"></div>
+      <div class="modal-content modal-form" style="width: 600px;">
+        <div class="modal-header">
+          <h2 id="backfill-progress-title">Backfill in Progress</h2>
+          <button class="modal-close" onclick="closeBackfillProgressModal()" aria-label="Close progress dialog">×</button>
+        </div>
+
+        <div style="margin-bottom: 24px;">
+          <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+            <span style="font-weight: 600;">Overall Progress</span>
+            <span id="progress-percentage" style="font-weight: 600;">0%</span>
+          </div>
+          <div style="width: 100%; height: 24px; background: var(--bg-secondary); border-radius: 12px; overflow: hidden;">
+            <div id="progress-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #0f9370, #11b981); transition: width 0.3s ease; display: flex; align-items: center; justify-content: flex-end; padding-right: 8px;">
+              <span id="bar-text" style="color: white; font-size: 11px; font-weight: 600;"></span>
+            </div>
+          </div>
+        </div>
+
+        <div style="background: var(--bg-secondary); border-radius: 8px; padding: 16px; margin-bottom: 16px;">
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; font-size: 13px;">
+            <div>
+              <span style="color: var(--text-secondary); display: block; margin-bottom: 4px;">Symbols Completed</span>
+              <span id="symbols-completed" style="font-weight: 600; font-size: 16px;">0 / 0</span>
+            </div>
+            <div>
+              <span style="color: var(--text-secondary); display: block; margin-bottom: 4px;">Total Records Inserted</span>
+              <span id="records-inserted" style="font-weight: 600; font-size: 16px;">0</span>
+            </div>
+            <div>
+              <span style="color: var(--text-secondary); display: block; margin-bottom: 4px;">Current Symbol</span>
+              <span id="current-symbol" style="font-weight: 600; font-size: 14px; font-family: monospace;">--</span>
+            </div>
+            <div>
+              <span style="color: var(--text-secondary); display: block; margin-bottom: 4px;">Elapsed Time</span>
+              <span id="elapsed-time" style="font-weight: 600; font-size: 14px;">0s</span>
+            </div>
+          </div>
+        </div>
+
+        <div style="background: var(--bg-secondary); border-radius: 8px; padding: 12px; max-height: 200px; overflow-y: auto; margin-bottom: 16px;">
+          <div style="font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 8px;">PROCESSING LOG</div>
+          <div id="backfill-log" style="font-family: monospace; font-size: 11px; line-height: 1.6; color: var(--text-secondary);"></div>
+        </div>
+
+        <div class="form-actions">
+          <button class="btn btn-secondary" onclick="closeBackfillProgressModal()" aria-label="Close progress dialog">Close</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.body.insertAdjacentHTML("beforeend", modalHTML);
+}
+
+/**
+ * Close backfill progress modal
+ */
+function closeBackfillProgressModal() {
+  const modal = document.getElementById("backfill-progress-modal");
+  if (modal) modal.remove();
+}
+
+/**
+ * Poll backfill job status
+ */
+async function pollBackfillStatus(jobId) {
+  const maxAttempts = 3600; // 1 hour if polling every second
+  let attempts = 0;
+
+  const poll = async () => {
+    if (attempts > maxAttempts) {
+      console.warn(`Backfill job ${jobId} polling timeout`);
+      return;
+    }
+
+    try {
+      const response = await fetch(
+        `${CONFIG.API_BASE}/api/v1/backfill/status/${jobId}`
+      );
+
+      if (!response.ok) {
+        if (response.status === 404) {
+          console.warn(`Job ${jobId} not found`);
+          return;
+        }
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const status = await response.json();
+      updateBackfillProgressDisplay(jobId, status);
+
+      // Continue polling if not completed
+      if (status.status !== "completed" && status.status !== "failed") {
+        attempts++;
+        setTimeout(poll, 1000); // Poll every second
+      } else {
+        console.info(`Backfill job ${jobId} finished with status: ${status.status}`);
+        activeBackfillJobs.delete(jobId);
+        
+        // Show completion message
+        const message = status.status === "completed" 
+          ? `✓ Backfill completed! ${status.total_records_inserted} records inserted.`
+          : `✗ Backfill failed: ${status.error}`;
+        
+        showValidationError(message);
+        
+        // Refresh dashboard after 2 seconds
+        setTimeout(() => refreshDashboard(), 2000);
+      }
+
+    } catch (error) {
+      console.error(`Error polling backfill status: ${error}`);
+      attempts++;
+      setTimeout(poll, 5000); // Retry after 5 seconds on error
+    }
+  };
+
+  poll();
+}
+
+/**
+ * Update progress display
+ */
+function updateBackfillProgressDisplay(jobId, status) {
+  const progressPct = status.progress_pct || 0;
+  const progressBar = document.getElementById("progress-bar");
+  const progressPercentage = document.getElementById("progress-percentage");
+  const symbolsCompleted = document.getElementById("symbols-completed");
+  const recordsInserted = document.getElementById("records-inserted");
+  const currentSymbol = document.getElementById("current-symbol");
+  const elapsedTime = document.getElementById("elapsed-time");
+  const log = document.getElementById("backfill-log");
+
+  if (progressBar) {
+    progressBar.style.width = `${progressPct}%`;
+    const barText = document.getElementById("bar-text");
+    if (progressPct > 10) {
+      barText.textContent = `${progressPct}%`;
+    }
+  }
+
+  if (progressPercentage) {
+    progressPercentage.textContent = `${progressPct}%`;
+  }
+
+  if (symbolsCompleted) {
+    symbolsCompleted.textContent = `${status.symbols_completed} / ${status.symbols_total}`;
+  }
+
+  if (recordsInserted) {
+    recordsInserted.textContent = formatNumber(status.total_records_inserted);
+  }
+
+  if (currentSymbol) {
+    currentSymbol.textContent = status.current_symbol || "--";
+  }
+
+  if (elapsedTime) {
+    const jobData = activeBackfillJobs.get(jobId);
+    if (jobData) {
+      const elapsed = Math.floor((Date.now() - jobData.startTime) / 1000);
+      elapsedTime.textContent = formatTime(elapsed);
+    }
+  }
+
+  // Update log
+  if (log && status.details) {
+    const logLines = status.details
+      .filter(d => d.status === "completed" || d.status === "failed")
+      .map(d => {
+        const icon = d.status === "completed" ? "✓" : "✗";
+        const records = d.records_inserted || 0;
+        return `${icon} ${d.symbol} ${d.timeframe}: ${records} records`;
+      });
+    
+    log.innerHTML = logLines.map(line => `<div>${escapeHtml(line)}</div>`).join("");
+    log.scrollTop = log.scrollHeight;
+  }
+}
+
+/**
+ * Format seconds to HH:MM:SS
+ */
+function formatTime(seconds) {
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = seconds % 60;
+  
+  if (hours > 0) {
+    return `${hours}h ${minutes}m`;
+  } else if (minutes > 0) {
+    return `${minutes}m ${secs}s`;
+  } else {
+    return `${secs}s`;
   }
 }
 
@@ -1322,26 +2006,37 @@ async function submitBackfill() {
  */
 function openEnrichModal() {
   if (selectedSymbols.size === 0) {
-    alert('Please select at least one symbol');
+    showValidationError("Please select at least one symbol");
     return;
   }
-  
-  const modal = document.getElementById('enrich-modal');
-  const displayDiv = document.getElementById('enrich-symbols');
-  
+
+  const modal = document.getElementById("enrich-modal");
+  const displayDiv = document.getElementById("enrich-symbols");
+
   // Populate selected symbols
-  displayDiv.innerHTML = Array.from(selectedSymbols)
-    .map(s => `<span class="symbol-tag">${escapeHtml(s)}</span>`)
-    .join('');
+  const symbolsHTML = Array.from(selectedSymbols)
+    .map((s) => `<span class="symbol-tag">${escapeHtml(s)}</span>`)
+    .join("");
   
-  modal.style.display = 'flex';
+  displayDiv.innerHTML = symbolsHTML || '<span style="color: var(--text-secondary);">No symbols selected</span>';
+
+  modal.style.display = "flex";
+  
+  // Set focus trap for accessibility
+  setupModalFocusTrap(modal);
+
+  // Focus dropdown for accessibility
+  const dropdown = modal.querySelector("#enrich-timeframe");
+  if (dropdown) {
+    setTimeout(() => dropdown.focus(), 100);
+  }
 }
 
 /**
  * Close enrichment modal
  */
 function closeEnrichModal() {
-  document.getElementById('enrich-modal').style.display = 'none';
+  document.getElementById("enrich-modal").style.display = "none";
 }
 
 /**
@@ -1349,40 +2044,63 @@ function closeEnrichModal() {
  */
 async function submitEnrich() {
   const symbols = getSelectedSymbols();
-  const timeframe = document.getElementById('enrich-timeframe').value;
-  
+  const timeframe = document.getElementById("enrich-timeframe").value;
+
+  // Validation
+  const errors = [];
+
+  if (!symbols || symbols.length === 0) {
+    errors.push("No symbols selected");
+  }
+  if (!timeframe || timeframe === "") {
+    errors.push("Please select a timeframe");
+    // Add visual feedback to dropdown
+    const dropdown = document.getElementById("enrich-timeframe");
+    if (dropdown) {
+      dropdown.style.borderColor = "var(--danger)";
+      setTimeout(() => {
+        dropdown.style.borderColor = "";
+      }, 3000);
+    }
+  }
+
+  if (errors.length > 0) {
+    showValidationError(errors.join(", "));
+    return;
+  }
+
   try {
-    console.log('Submitting enrichment:', { symbols, timeframe });
-    
+    console.log("Submitting enrichment:", { symbols, timeframe });
+
     // Build query string
     const params = new URLSearchParams();
-    symbols.forEach(s => params.append('symbols', s));
-    params.append('timeframe', timeframe);
-    
-    const response = await fetch(`${CONFIG.API_BASE}/api/v1/enrich?${params.toString()}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' }
-    });
-    
+    symbols.forEach((s) => params.append("symbols", s));
+    params.append("timeframe", timeframe);
+
+    const response = await fetch(
+      `${CONFIG.API_BASE}/api/v1/enrich?${params.toString()}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      }
+    );
+
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const result = await response.json();
-    
-    alert(`✓ Enrichment started for ${symbols.length} symbols\nJob ID: ${result.job_id}`);
+
+    alert(
+      `✓ Enrichment started for ${symbols.length} symbols\nJob ID: ${result.job_id}`
+    );
     closeEnrichModal();
     clearSelection();
     refreshDashboard();
   } catch (error) {
-    console.error('Enrichment error:', error);
+    console.error("Enrichment error:", error);
     alert(`Error starting enrichment: ${error.message}`);
   }
 }
 
-/**
- * Quick Actions - View API Docs
- */
-function viewDocs() {
-  window.open('/docs', '_blank');
-}
+
 
 /**
  * Setup collapsible sections (placeholder initialization)

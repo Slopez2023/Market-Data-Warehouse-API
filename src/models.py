@@ -184,3 +184,53 @@ class CreateAPIKeyRequest(BaseModel):
 class UpdateAPIKeyRequest(BaseModel):
     """Request to update an API key status"""
     active: bool = Field(..., description="Whether the key should be active")
+
+
+class BackfillJobDetail(BaseModel):
+    """Details of a single symbol-timeframe backfill"""
+    symbol: str
+    timeframe: str
+    status: str = "pending"
+    records_fetched: int = 0
+    records_inserted: int = 0
+    duration_seconds: Optional[int] = None
+
+
+class BackfillJobStatus(BaseModel):
+    """Response for backfill job status"""
+    job_id: str
+    status: str
+    progress_pct: int = 0
+    symbols_completed: int = 0
+    symbols_total: int
+    current_symbol: Optional[str] = None
+    current_timeframe: Optional[str] = None
+    total_records_fetched: int = 0
+    total_records_inserted: int = 0
+    created_at: datetime
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    estimated_completion: Optional[datetime] = None
+    error: Optional[str] = None
+    details: List[BackfillJobDetail] = []
+    
+    class Config:
+        json_encoders = {
+            datetime: lambda v: v.isoformat() if v else None
+        }
+
+
+class BackfillJobResponse(BaseModel):
+    """Response when submitting a backfill job"""
+    job_id: str
+    status: str = "queued"
+    symbols_count: int
+    symbols: List[str]
+    date_range: dict
+    timeframes: List[str]
+    timestamp: datetime
+    
+    class Config:
+        json_encoders = {
+            datetime: lambda v: v.isoformat()
+        }

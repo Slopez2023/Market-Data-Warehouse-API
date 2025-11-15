@@ -25,7 +25,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.clients.polygon_client import PolygonClient
 from src.services.earnings_service import EarningsService
-from src.database import Database
+from src.services.database_service import DatabaseService
+from src.config import get_db_url, get_polygon_api_key
 
 load_dotenv()
 logging.basicConfig(
@@ -36,10 +37,10 @@ logger = logging.getLogger(__name__)
 
 
 class EarningsBackfiller:
-    def __init__(self, db: Database, polygon_client: PolygonClient):
-        self.db = db
+    def __init__(self, db_service: DatabaseService, polygon_client: PolygonClient):
+        self.db_service = db_service
         self.polygon_client = polygon_client
-        self.earnings_service = EarningsService(db)
+        self.earnings_service = EarningsService(db_service)
 
     async def fetch_earnings_from_polygon(
         self, symbol: str, from_date: str, to_date: str
@@ -163,7 +164,7 @@ class EarningsBackfiller:
 
         return 0, 0
 
-    async def update_backfill_progress(
+    def update_backfill_progress(
         self,
         backfill_type: str,
         symbol: str,
@@ -172,29 +173,38 @@ class EarningsBackfiller:
         error_msg: Optional[str] = None,
     ) -> None:
         """Track backfill progress for resumability."""
-        query = """
-        INSERT INTO backfill_progress 
-        (backfill_type, symbol, status, last_processed_date, error_message)
-        VALUES ($1, $2, $3, $4, $5)
-        ON CONFLICT (backfill_type, symbol)
-        DO UPDATE SET
-            status = EXCLUDED.status,
-            last_processed_date = EXCLUDED.last_processed_date,
-            error_message = EXCLUDED.error_message,
-            attempted_at = NOW()
-        """
-
+        from sqlalchemy import text
+        session = self.db_service.SessionLocal()
+        
         try:
-            await self.db.execute(
+            query = text("""
+                INSERT INTO backfill_progress 
+                (backfill_type, symbol, status, last_processed_date, error_message, attempted_at)
+                VALUES (:backfill_type, :symbol, :status, :last_date, :error_msg, NOW())
+                ON CONFLICT (backfill_type, symbol)
+                DO UPDATE SET
+                    status = EXCLUDED.status,
+                    last_processed_date = EXCLUDED.last_processed_date,
+                    error_message = EXCLUDED.error_message,
+                    attempted_at = NOW()
+            """)
+            
+            session.execute(
                 query,
-                backfill_type,
-                symbol,
-                status,
-                last_date,
-                error_msg,
+                {
+                    'backfill_type': backfill_type,
+                    'symbol': symbol,
+                    'status': status,
+                    'last_date': last_date,
+                    'error_msg': error_msg
+                }
             )
+            session.commit()
         except Exception as e:
             logger.error(f"Error updating backfill progress: {e}")
+            session.rollback()
+        finally:
+            session.close()
 
     async def backfill_symbol(
         self, symbol: str, from_date: str, to_date: str
@@ -210,7 +220,7 @@ class EarningsBackfiller:
 
             if not financials:
                 logger.warning(f"  No earnings data for {symbol}")
-                await self.update_backfill_progress(
+                self.update_backfill_progress(
                     "earnings", symbol, "no_data"
                 )
                 return False
@@ -228,35 +238,40 @@ class EarningsBackfiller:
                 f"  ✓ {symbol}: Inserted {inserted}, Updated {updated}"
             )
 
-            await self.update_backfill_progress(
+            self.update_backfill_progress(
                 "earnings", symbol, "completed", to_date
             )
             return True
 
         except Exception as e:
             logger.error(f"Error backfilling {symbol}: {e}")
-            await self.update_backfill_progress(
+            self.update_backfill_progress(
                 "earnings", symbol, "failed", error_msg=str(e)
             )
             return False
 
 
-async def get_active_symbols(db: Database) -> List[str]:
+def get_active_symbols(db_service: DatabaseService) -> List[str]:
     """Get list of active symbols from database."""
-    query = """
-    SELECT DISTINCT symbol 
-    FROM tracked_symbols 
-    WHERE active = TRUE 
-    AND asset_class IN ('stock', 'etf')
-    ORDER BY symbol
-    """
-
+    from sqlalchemy import text
+    session = db_service.SessionLocal()
+    
     try:
-        records = await db.fetch(query)
-        return [r["symbol"] for r in records]
+        query = text("""
+            SELECT DISTINCT symbol 
+            FROM tracked_symbols 
+            WHERE active = TRUE 
+            AND asset_class IN ('stock', 'etf')
+            ORDER BY symbol
+        """)
+        
+        records = session.execute(query).fetchall()
+        return [r[0] for r in records]
     except Exception as e:
         logger.error(f"Error fetching symbols: {e}")
         return []
+    finally:
+        session.close()
 
 
 async def main():
@@ -283,14 +298,19 @@ async def main():
     args = parser.parse_args()
 
     # Setup database
-    db_url = os.getenv("DATABASE_URL")
+    db_url = get_db_url()
     if not db_url:
         logger.error("DATABASE_URL not set in environment")
         return
 
-    db = Database(db_url)
-    polygon_client = PolygonClient(os.getenv("POLYGON_API_KEY"))
-    backfiller = EarningsBackfiller(db, polygon_client)
+    db_service = DatabaseService(db_url)
+    polygon_api_key = get_polygon_api_key()
+    if not polygon_api_key:
+        logger.error("POLYGON_API_KEY not set in environment")
+        return
+        
+    polygon_client = PolygonClient(polygon_api_key)
+    backfiller = EarningsBackfiller(db_service, polygon_client)
 
     # Date range
     end_date = datetime.utcnow().date()
@@ -304,7 +324,7 @@ async def main():
     if args.symbol:
         symbols = [args.symbol]
     else:
-        symbols = await get_active_symbols(db)
+        symbols = get_active_symbols(db_service)
 
     if not symbols:
         logger.error("No symbols to backfill")
@@ -321,17 +341,22 @@ async def main():
 
         if args.resume:
             # Check if already completed
-            query = """
-            SELECT status FROM backfill_progress 
-            WHERE backfill_type = 'earnings' AND symbol = $1
-            """
+            from sqlalchemy import text
+            session = db_service.SessionLocal()
             try:
-                result = await db.fetchrow(query, symbol)
-                if result and result["status"] == "completed":
+                query = text("""
+                    SELECT status FROM backfill_progress 
+                    WHERE backfill_type = 'earnings' AND symbol = :symbol
+                """)
+                result = session.execute(query, {'symbol': symbol}).first()
+                if result and result[0] == "completed":
                     logger.info(f"  Skipping {symbol} (already completed)")
+                    session.close()
                     continue
-            except:
-                pass
+            except Exception as e:
+                logger.warning(f"  Could not check progress for {symbol}: {e}")
+            finally:
+                session.close()
 
         success = await backfiller.backfill_symbol(
             symbol, start_date.isoformat(), end_date.isoformat()

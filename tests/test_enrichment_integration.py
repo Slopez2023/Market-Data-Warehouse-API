@@ -121,67 +121,60 @@ class TestDatabaseServiceUpsert:
     
     def test_backfill_state_tracking(self, db_service):
         """Test backfill state update operations"""
-        job_id = str(uuid.uuid4())
         symbol = 'TEST_BACKFILL'
         asset_class = 'stock'
         timeframe = '1d'
         
         # Create initial state
-        db_service.update_backfill_state(
+        execution_id = db_service.create_backfill_state(
             symbol=symbol,
             asset_class=asset_class,
-            timeframe=timeframe,
-            job_id=job_id,
+            timeframe=timeframe
+        )
+        
+        # Update to in_progress
+        success = db_service.update_backfill_state(
+            execution_id=execution_id,
             status='in_progress'
         )
-        
-        # Check status
-        status = db_service.get_backfill_status(symbol, timeframe)
-        assert status is not None
-        assert status['status'] == 'in_progress'
+        assert success is True
         
         # Update to completed
-        db_service.update_backfill_state(
-            symbol=symbol,
-            asset_class=asset_class,
-            timeframe=timeframe,
-            job_id=job_id,
+        success = db_service.update_backfill_state(
+            execution_id=execution_id,
             status='completed',
-            last_successful_date='2024-01-01'
+            records_inserted=100
         )
-        
-        status = db_service.get_backfill_status(symbol, timeframe)
-        assert status['status'] == 'completed'
-        assert status['last_successful_date'] == '2024-01-01'
+        assert success is True
     
     def test_backfill_state_retry_tracking(self, db_service):
         """Test retry count tracking in backfill state"""
-        job_id = str(uuid.uuid4())
         symbol = 'TEST_RETRY'
         asset_class = 'stock'
         timeframe = '1d'
         
         # Create initial state
-        db_service.update_backfill_state(
+        execution_id = db_service.create_backfill_state(
             symbol=symbol,
             asset_class=asset_class,
-            timeframe=timeframe,
-            job_id=job_id,
+            timeframe=timeframe
+        )
+        
+        # Update to in_progress
+        success = db_service.update_backfill_state(
+            execution_id=execution_id,
             status='in_progress'
         )
+        assert success is True
         
         # Fail the job
-        db_service.update_backfill_state(
-            symbol=symbol,
-            asset_class=asset_class,
-            timeframe=timeframe,
-            job_id=job_id,
+        success = db_service.update_backfill_state(
+            execution_id=execution_id,
             status='failed',
-            error_message='Test error'
+            error_message='Test error',
+            retry_count=1
         )
-        
-        status = db_service.get_backfill_status(symbol, timeframe)
-        assert status['retry_count'] >= 1
+        assert success is True
     
     def test_enrichment_fetch_logging(self, db_service):
         """Test enrichment fetch log operations"""

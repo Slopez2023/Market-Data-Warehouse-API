@@ -51,13 +51,13 @@ async def get_enrichment_dashboard_overview():
             symbol_stats = session.execute(text("""
                 SELECT 
                     COUNT(*) as total_symbols,
-                    SUM(CASE WHEN status = 'healthy' THEN 1 ELSE 0 END) as healthy_symbols,
-                    SUM(CASE WHEN status = 'warning' THEN 1 ELSE 0 END) as warning_symbols,
-                    SUM(CASE WHEN status = 'error' OR status = 'stale' THEN 1 ELSE 0 END) as problem_symbols,
-                    MAX(last_enrichment_time) as latest_enrichment,
-                    AVG(EXTRACT(EPOCH FROM (NOW() - last_enrichment_time))) as avg_age_seconds
+                    SUM(CASE WHEN is_stale = false AND consecutive_failures = 0 THEN 1 ELSE 0 END) as healthy_symbols,
+                    SUM(CASE WHEN consecutive_failures > 0 AND consecutive_failures < 3 THEN 1 ELSE 0 END) as warning_symbols,
+                    SUM(CASE WHEN is_stale = true OR consecutive_failures >= 3 THEN 1 ELSE 0 END) as problem_symbols,
+                    MAX(last_enriched_at) as latest_enrichment,
+                    AVG(EXTRACT(EPOCH FROM (NOW() - last_enriched_at))) as avg_age_seconds
                 FROM enrichment_status
-                WHERE last_enrichment_time IS NOT NULL
+                WHERE last_enriched_at IS NOT NULL
             """)).first()
             
             total_symbols = symbol_stats[0] or 0
@@ -181,9 +181,7 @@ async def get_enrichment_job_status(symbol: str):
             # Get current enrichment status
             status_row = session.execute(text("""
                 SELECT 
-                    symbol, status, last_enrichment_time, last_successful_enrichment,
-                    records_available, quality_score, validation_rate, error_message,
-                    data_age_seconds
+                    symbol, last_enriched_at, data_freshness_seconds, is_stale, consecutive_failures, last_error
                 FROM enrichment_status
                 WHERE symbol = :symbol
             """), {"symbol": symbol}).first()
@@ -628,14 +626,30 @@ async def trigger_enrichment_manually(
             raise HTTPException(status_code=503, detail="Enrichment scheduler not initialized")
         
         job_id = str(uuid.uuid4())
+        symbols = [symbol] if symbol else []
         
-        logger.info(f"Enrichment triggered manually: job_id={job_id}, symbol={symbol}")
+        logger.info(f"Enrichment triggered manually: job_id={job_id}, symbols={symbols}, timeframes={timeframes}")
+        
+        # Trigger enrichment asynchronously and store job ID
+        if symbols:
+            try:
+                # Call trigger_enrichment which handles async execution
+                job_id = await _enrichment_scheduler.trigger_enrichment(
+                    symbols=symbols,
+                    asset_class=asset_class,
+                    timeframes=timeframes
+                )
+            except Exception as e:
+                logger.error(f"Error triggering enrichment job: {e}")
+                raise HTTPException(status_code=500, detail=f"Failed to trigger enrichment: {str(e)}")
         
         return {
             "job_id": job_id,
-            "symbols": [symbol] if symbol else [],
+            "symbols": symbols,
             "status": "queued",
             "estimated_duration_seconds": 300,
+            "asset_class": asset_class,
+            "timeframes": timeframes,
             "timestamp": datetime.utcnow().isoformat()
         }
     except HTTPException:

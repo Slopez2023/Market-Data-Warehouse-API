@@ -261,6 +261,10 @@ class EnrichmentScheduler:
             if not self.enrichment_service:
                 raise RuntimeError("Enrichment service not initialized")
             
+            if not symbols:
+                logger.warning("No symbols provided to trigger_enrichment")
+                return job_id
+            
             tasks = [
                 self.enrichment_service.enrich_symbol(
                     symbol=s,
@@ -270,8 +274,12 @@ class EnrichmentScheduler:
                 for s in symbols
             ]
             
-            # Run enrichments concurrently
-            asyncio.create_task(asyncio.gather(*tasks, return_exceptions=True))
+            # Store job history before running
+            self.job_history[job_id] = {
+                'started_at': datetime.utcnow(),
+                'symbols': symbols,
+                'status': 'running'
+            }
             
             slogger.info(
                 "Enrichment triggered manually",
@@ -282,11 +290,45 @@ class EnrichmentScheduler:
                 }
             )
             
+            # Run enrichments concurrently in background (no await needed)
+            asyncio.create_task(self._run_enrichment_batch(job_id, tasks))
+            
             return job_id
             
         except Exception as e:
             logger.error(f"Error triggering enrichment: {e}", extra={'job_id': job_id})
             raise
+    
+    async def _run_enrichment_batch(self, job_id: str, tasks: List) -> None:
+        """Run a batch of enrichment tasks and track results."""
+        try:
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            successful = sum(1 for r in results if isinstance(r, dict) and not r.get('errors'))
+            failed = sum(1 for r in results if isinstance(r, dict) and r.get('errors'))
+            
+            self.job_history[job_id].update({
+                'status': 'completed',
+                'completed_at': datetime.utcnow(),
+                'successful': successful,
+                'failed': failed
+            })
+            
+            slogger.info(
+                "Manual enrichment batch completed",
+                extra={
+                    'job_id': job_id,
+                    'successful': successful,
+                    'failed': failed
+                }
+            )
+        except Exception as e:
+            logger.error(f"Error running enrichment batch {job_id}: {e}")
+            self.job_history[job_id].update({
+                'status': 'failed',
+                'error': str(e),
+                'completed_at': datetime.utcnow()
+            })
     
     def get_job_status(self, job_id: str) -> Optional[Dict]:
         """Get status of a specific enrichment job."""

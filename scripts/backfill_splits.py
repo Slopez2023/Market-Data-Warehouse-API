@@ -16,9 +16,15 @@ Features:
 import asyncio
 import logging
 import os
+import sys
 import argparse
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
+
+# Add parent directory to path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+load_dotenv()
 
 from src.clients.polygon_client import PolygonClient
 from src.services.database_service import DatabaseService

@@ -1,0 +1,182 @@
+#!/usr/bin/env python3
+"""Backfill historical 1-minute candle data for all symbols"""
+
+import asyncio
+import sys
+import os
+from pathlib import Path
+from datetime import datetime, timedelta
+from typing import List, Tuple
+from decimal import Decimal
+from sqlalchemy import text
+
+# Add project to path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from src.config import config
+from src.services.database_service import DatabaseService
+from src.clients.polygon_client import PolygonClient
+from src.services.validation_service import ValidationService
+from src.services.structured_logging import StructuredLogger
+
+logger = StructuredLogger(__name__)
+
+
+class OneMinuteBackfiller:
+    """Backfill 1m candle data for all symbols"""
+    
+    def __init__(self, lookback_days: int = 14):
+        self.lookback_days = lookback_days
+        self.db_service = DatabaseService(config.database_url)
+        self.polygon_client = PolygonClient(config.polygon_api_key)
+        self.validation_service = ValidationService()
+        self.stats = {
+            'total_symbols': 0,
+            'successful': 0,
+            'failed': 0,
+            'total_candles': 0,
+            'start_time': None,
+            'end_time': None
+        }
+    
+    async def backfill_all_symbols(self) -> bool:
+        """Backfill 1m data for all active symbols"""
+        
+        self.stats['start_time'] = datetime.now()
+        logger.info(f"Starting 1m backfill with {self.lookback_days}-day lookback")
+        
+        # Get all active symbols
+        try:
+            symbols = self._get_all_symbols()
+        except Exception as e:
+            logger.error(f"Failed to fetch symbols: {e}")
+            return False
+        
+        if not symbols:
+            logger.error("No symbols found in database")
+            return False
+        
+        self.stats['total_symbols'] = len(symbols)
+        logger.info(f"Found {len(symbols)} symbols to backfill")
+        
+        # Calculate date range
+        end_date = datetime.now().date()
+        start_date = end_date - timedelta(days=self.lookback_days)
+        
+        logger.info(f"Date range: {start_date} to {end_date}")
+        
+        # Process symbols with batching and rate limiting
+        for i, (symbol, asset_class) in enumerate(symbols, 1):
+            try:
+                await self._backfill_symbol(symbol, asset_class, start_date, end_date, i, len(symbols))
+                self.stats['successful'] += 1
+            except Exception as e:
+                logger.error(f"Failed to backfill {symbol}: {e}")
+                self.stats['failed'] += 1
+            
+            # Rate limiting: pause after every 10 symbols
+            if i % 10 == 0:
+                logger.info(f"Processed {i}/{len(symbols)} symbols, pausing for rate limits...")
+                await asyncio.sleep(2)
+            else:
+                await asyncio.sleep(0.5)
+        
+        self.stats['end_time'] = datetime.now()
+        self._log_summary()
+        return self.stats['failed'] == 0
+    
+    async def _backfill_symbol(self, symbol: str, asset_class: str, start_date, end_date, current: int, total: int):
+        """Backfill 1m data for a single symbol"""
+        
+        logger.debug(f"[{current}/{total}] Fetching 1m candles for {symbol}")
+        
+        # Fetch 1m candles
+        candles = await self.polygon_client.fetch_range(
+            symbol=symbol,
+            timeframe='1m',
+            start=start_date.isoformat(),
+            end=end_date.isoformat()
+        )
+        
+        if not candles:
+            logger.info(f"[{current}/{total}] No 1m data found for {symbol}")
+            return
+        
+        # Calculate median volume for anomaly detection
+        median_vol = self.validation_service.calculate_median_volume(candles)
+        
+        # Validate each candle
+        metadata_list = []
+        prev_close = None
+        
+        for candle in candles:
+            _, meta = self.validation_service.validate_candle(
+                symbol,
+                candle,
+                prev_close=Decimal(str(prev_close)) if prev_close is not None else None,
+                median_volume=median_vol if median_vol > 0 else None
+            )
+            metadata_list.append(meta)
+            prev_close = candle.get('c')
+        
+        # Insert into database (will upsert on conflict)
+        inserted = self.db_service.insert_ohlcv_batch(
+            symbol=symbol,
+            candles=candles,
+            metadata=metadata_list,
+            timeframe='1m'
+        )
+        
+        self.stats['total_candles'] += inserted
+        logger.info(f"[{current}/{total}] {symbol}: Inserted {inserted} 1m candles")
+    
+    def _get_all_symbols(self) -> List[Tuple[str, str]]:
+        """Get all active symbols from database"""
+        
+        session = self.db_service.SessionLocal()
+        try:
+            query = text("""
+                SELECT symbol, asset_class 
+                FROM tracked_symbols 
+                WHERE active = true 
+                ORDER BY symbol
+            """)
+            result = session.execute(query)
+            return [(row[0], row[1]) for row in result.fetchall()]
+        finally:
+            session.close()
+    
+    def _log_summary(self):
+        """Log backfill summary statistics"""
+        
+        duration = (self.stats['end_time'] - self.stats['start_time']).total_seconds()
+        rate = self.stats['total_candles'] / duration if duration > 0 else 0
+        
+        logger.info("=" * 60)
+        logger.info("1M CANDLE BACKFILL COMPLETE")
+        logger.info("=" * 60)
+        logger.info(f"Total Symbols: {self.stats['total_symbols']}")
+        logger.info(f"Successful: {self.stats['successful']}")
+        logger.info(f"Failed: {self.stats['failed']}")
+        logger.info(f"Total Candles Inserted: {self.stats['total_candles']:,}")
+        logger.info(f"Duration: {duration:.1f} seconds")
+        logger.info(f"Rate: {rate:.0f} candles/second")
+        logger.info("=" * 60)
+
+
+async def main():
+    """Main entry point"""
+    
+    import argparse
+    parser = argparse.ArgumentParser(description='Backfill 1m candle data')
+    parser.add_argument('--lookback-days', type=int, default=14, help='Days of history to fetch (default: 14)')
+    args = parser.parse_args()
+    
+    backfiller = OneMinuteBackfiller(lookback_days=args.lookback_days)
+    success = await backfiller.backfill_all_symbols()
+    
+    sys.exit(0 if success else 1)
+
+
+if __name__ == '__main__':
+    asyncio.run(main())

@@ -137,21 +137,57 @@ class DataEnrichmentService:
         start_date: datetime,
         end_date: datetime
     ) -> List[Dict]:
-        """Fetch dividend data for a stock."""
+        """Fetch dividend data for a stock from external sources."""
         try:
-            # This would normally call Polygon API or other dividend data source
-            logger.debug(f"Fetching dividends for {symbol}")
-            return []
+            logger.debug(f"Fetching dividends for {symbol} ({start_date} to {end_date})")
+            
+            # Import Polygon client if available
+            try:
+                from src.clients.polygon_client import PolygonClient
+                
+                api_key = self.config.POLYGON_API_KEY
+                if not api_key:
+                    logger.warning("POLYGON_API_KEY not configured, skipping dividend fetch")
+                    return []
+                
+                polygon = PolygonClient(api_key)
+                dividends = await polygon.fetch_dividends(
+                    symbol,
+                    start_date.strftime('%Y-%m-%d'),
+                    end_date.strftime('%Y-%m-%d')
+                )
+                
+                logger.info(f"Fetched {len(dividends) if dividends else 0} dividend records for {symbol}")
+                return dividends or []
+                
+            except ImportError:
+                logger.warning("Polygon client not available for dividend fetch")
+                return []
         except Exception as e:
             logger.error(f"Error fetching dividends for {symbol}: {e}")
             return []
     
     async def _fetch_earnings(self, symbol: str) -> List[Dict]:
-        """Fetch earnings data for a stock."""
+        """Fetch earnings data for a stock from external sources."""
         try:
-            # This would normally call Polygon API or other earnings data source
             logger.debug(f"Fetching earnings for {symbol}")
-            return []
+            
+            # Import earnings service if available
+            try:
+                from src.services.earnings_service import EarningsService
+                
+                earnings_svc = EarningsService(self.db)
+                earnings = await earnings_svc.get_earnings_by_symbol(
+                    symbol,
+                    days_back=1095  # 3 years
+                )
+                
+                logger.info(f"Fetched {len(earnings) if earnings else 0} earnings records for {symbol}")
+                return earnings or []
+                
+            except ImportError:
+                logger.warning("Earnings service not available for earnings fetch")
+                return []
         except Exception as e:
             logger.error(f"Error fetching earnings for {symbol}: {e}")
             return []
@@ -288,7 +324,7 @@ class DataEnrichmentService:
                     session.execute(text("""
                         UPDATE enrichment_status
                         SET status = :status,
-                            last_enrichment_time = NOW(),
+                            last_enriched_at = NOW(),
                             updated_at = NOW()
                         WHERE symbol = :symbol
                     """), {
@@ -299,7 +335,7 @@ class DataEnrichmentService:
                     # Insert new status
                     session.execute(text("""
                         INSERT INTO enrichment_status
-                        (symbol, asset_class, status, last_enrichment_time, created_at, updated_at)
+                        (symbol, asset_class, status, last_enriched_at, created_at, updated_at)
                         VALUES (:symbol, :asset_class, :status, NOW(), NOW(), NOW())
                     """), {
                         'symbol': symbol,
@@ -326,8 +362,7 @@ class DataEnrichmentService:
             
             try:
                 status = session.execute(text("""
-                    SELECT symbol, asset_class, status, last_enrichment_time,
-                           records_available, quality_score
+                    SELECT symbol, asset_class, last_enriched_at, data_freshness_seconds, is_stale, consecutive_failures
                     FROM enrichment_status
                     WHERE symbol = :symbol
                 """), {'symbol': symbol}).first()
@@ -337,7 +372,7 @@ class DataEnrichmentService:
                         'symbol': status[0],
                         'asset_class': status[1],
                         'status': status[2],
-                        'last_enrichment_time': status[3],
+                        'last_enriched_at': status[3],
                         'records_available': status[4],
                         'quality_score': status[5]
                     }

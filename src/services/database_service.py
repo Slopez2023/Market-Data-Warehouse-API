@@ -36,10 +36,10 @@ class DatabaseService:
         self.engine = create_engine(
             database_url,
             poolclass=QueuePool,
-            pool_size=10,  # Number of connections to keep in pool
-            max_overflow=20,  # Additional connections if pool exhausted
-            pool_recycle=3600,  # Recycle connections every hour (prevents stale connections)
-            pool_pre_ping=True,  # Test connections before using them
+            pool_size=20,
+            max_overflow=40,
+            pool_recycle=3600,
+            pool_pre_ping=True,
             echo=False
         )
         self.SessionLocal = sessionmaker(bind=self.engine, autocommit=False, autoflush=False)
@@ -99,28 +99,23 @@ class DatabaseService:
                     'timeframe': timeframe
                 })
             
-            # Execute batch insert
-            # Using ON CONFLICT DO UPDATE to handle duplicates (upsert)
-            insert_stmt = text("""
-                INSERT INTO market_data 
-                (time, symbol, open, high, low, close, volume, validated, quality_score, 
-                 validation_notes, gap_detected, volume_anomaly, source, fetched_at, timeframe)
-                VALUES 
-                (:time, :symbol, :open, :high, :low, :close, :volume, :validated, 
-                 :quality_score, :validation_notes, :gap_detected, :volume_anomaly, 
-                 :source, :fetched_at, :timeframe)
-                ON CONFLICT (symbol, time, timeframe) DO UPDATE SET
-                    validated = EXCLUDED.validated,
-                    quality_score = EXCLUDED.quality_score,
-                    validation_notes = EXCLUDED.validation_notes,
-                    gap_detected = EXCLUDED.gap_detected,
-                    volume_anomaly = EXCLUDED.volume_anomaly,
-                    fetched_at = EXCLUDED.fetched_at
-            """)
-            
-            for value in values:
-                session.execute(insert_stmt, value)
-            
+            # Execute bulk insert using raw SQL (SQLAlchemy ORM was not fully set up)
+            if values:
+                insert_query = text("""
+                    INSERT INTO market_data 
+                    (datetime, symbol, open, high, low, close, volume, 
+                     validated, quality_score, validation_notes, gap_detected, 
+                     volume_anomaly, source, fetched_at, timeframe)
+                    VALUES 
+                    (:time, :symbol, :open, :high, :low, :close, :volume,
+                     :validated, :quality_score, :validation_notes, :gap_detected,
+                     :volume_anomaly, :source, :fetched_at, :timeframe)
+                """)
+                for value_set in values:
+                    try:
+                        session.execute(insert_query, value_set)
+                    except Exception as e:
+                        logger.warning(f"Failed to insert record for {symbol}: {e}")
             session.commit()
             inserted = len(values)
             logger.info(f"Inserted {inserted} records for {symbol}")
@@ -134,6 +129,87 @@ class DatabaseService:
         
         return inserted
     
+    async def insert_ohlcv_backfill(
+        self,
+        symbol: str,
+        candles: List[Dict],
+        timeframe: str = '1d'
+    ) -> int:
+        """
+        Insert OHLCV candles for backfill operations (simplified, no metadata).
+        
+        Args:
+            symbol: Stock ticker
+            candles: List of {t, o, h, l, c, v}
+            timeframe: Candle timeframe (default: '1d')
+        
+        Returns:
+            Number of rows inserted
+        """
+        if not candles:
+            return 0
+        
+        session = self.SessionLocal()
+        inserted = 0
+        
+        try:
+            # Prepare insert values
+            values = []
+            for candle in candles:
+                # Convert Polygon timestamp (milliseconds) to seconds
+                timestamp_ms = candle.get('t', 0)
+                timestamp = datetime.utcfromtimestamp(timestamp_ms / 1000)
+                
+                values.append({
+                    'time': timestamp,
+                    'symbol': symbol,
+                    'open': candle.get('o', 0),
+                    'high': candle.get('h', 0),
+                    'low': candle.get('l', 0),
+                    'close': candle.get('c', 0),
+                    'volume': int(candle.get('v', 0)),
+                    'validated': False,  # Backfill data not initially validated
+                    'quality_score': 0.0,
+                    'validation_notes': 'Backfill data',
+                    'gap_detected': False,
+                    'volume_anomaly': False,
+                    'source': 'polygon',
+                    'fetched_at': datetime.utcnow(),
+                    'timeframe': timeframe
+                })
+            
+            # Execute bulk insert
+            if values:
+                insert_query = text("""
+                    INSERT INTO market_data 
+                    (datetime, symbol, open, high, low, close, volume, 
+                     validated, quality_score, validation_notes, gap_detected, 
+                     volume_anomaly, source, fetched_at, timeframe)
+                    VALUES 
+                    (:time, :symbol, :open, :high, :low, :close, :volume,
+                     :validated, :quality_score, :validation_notes, :gap_detected,
+                     :volume_anomaly, :source, :fetched_at, :timeframe)
+                    ON CONFLICT (datetime, symbol, timeframe) DO NOTHING
+                """)
+                for value_set in values:
+                    try:
+                        session.execute(insert_query, value_set)
+                    except Exception as e:
+                        logger.warning(f"Failed to insert record for {symbol}: {e}")
+            
+            session.commit()
+            inserted = len(values)
+            logger.info(f"Inserted {inserted} candles for {symbol} {timeframe}")
+            
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Error inserting OHLCV backfill for {symbol}: {e}")
+        
+        finally:
+            session.close()
+        
+        return inserted
+     
     def get_historical_data(
         self,
         symbol: str,
@@ -2039,5 +2115,135 @@ class DatabaseService:
             session.rollback()
             logger.error(f"Error tracking symbol failure for {symbol}: {e}")
             return {"symbol": symbol, "error": str(e)}
+        finally:
+            session.close()
+    
+    def create_backfill_job(self, job_id: str, symbols: List[str], 
+                           start_date: str, end_date: str, 
+                           timeframes: List[str]) -> Dict:
+        """Create a new backfill job record."""
+        session = self.SessionLocal()
+        try:
+            session.execute(
+                text("""
+                    INSERT INTO backfill_jobs 
+                    (id, symbols, start_date, end_date, timeframes, status, symbols_total)
+                    VALUES (:job_id, :symbols, :start_date, :end_date, :timeframes, 'queued', :symbols_total)
+                """),
+                {
+                    "job_id": job_id,
+                    "symbols": symbols,
+                    "start_date": start_date,
+                    "end_date": end_date,
+                    "timeframes": timeframes,
+                    "symbols_total": len(symbols)
+                }
+            )
+            session.commit()
+            logger.info(f"Created backfill job {job_id}")
+            return {"job_id": job_id, "status": "created"}
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Error creating backfill job: {e}")
+            raise
+        finally:
+            session.close()
+    
+    def get_backfill_job_status(self, job_id: str) -> Dict:
+        """Get current status of a backfill job."""
+        session = self.SessionLocal()
+        try:
+            job = session.execute(
+                text("""
+                    SELECT id, status, progress_pct, symbols_completed, symbols_total,
+                           current_symbol, current_timeframe, total_records_fetched,
+                           total_records_inserted, error_message, created_at, started_at,
+                           completed_at, estimated_completion_time
+                    FROM backfill_jobs
+                    WHERE id = :job_id
+                """),
+                {"job_id": job_id}
+            ).fetchone()
+            
+            if not job:
+                return {"error": "Job not found"}
+            
+            # Get progress details
+            progress_details = session.execute(
+                text("""
+                    SELECT symbol, timeframe, status, records_fetched, records_inserted, duration_seconds
+                    FROM backfill_job_progress
+                    WHERE job_id = :job_id
+                    ORDER BY created_at DESC
+                """),
+                {"job_id": job_id}
+            ).fetchall()
+            
+            details = [
+                {
+                    "symbol": p[0],
+                    "timeframe": p[1],
+                    "status": p[2],
+                    "records_fetched": p[3],
+                    "records_inserted": p[4],
+                    "duration_seconds": p[5]
+                }
+                for p in progress_details
+            ]
+            
+            return {
+                "job_id": job_id,
+                "status": job[1],
+                "progress_pct": job[2],
+                "symbols_completed": job[3],
+                "symbols_total": job[4],
+                "current_symbol": job[5],
+                "current_timeframe": job[6],
+                "total_records_fetched": job[7],
+                "total_records_inserted": job[8],
+                "created_at": job[10],
+                "started_at": job[11],
+                "completed_at": job[12],
+                "estimated_completion": job[13],
+                "error": job[9],
+                "details": details
+            }
+        except Exception as e:
+            logger.error(f"Error getting backfill status: {e}")
+            raise
+        finally:
+            session.close()
+    
+    def get_recent_backfill_jobs(self, limit: int = 10) -> List[Dict]:
+        """Get recent backfill jobs."""
+        session = self.SessionLocal()
+        try:
+            jobs = session.execute(
+                text("""
+                    SELECT id, status, progress_pct, symbols_total, symbols_completed,
+                           total_records_inserted, created_at, completed_at
+                    FROM backfill_jobs
+                    ORDER BY created_at DESC
+                    LIMIT :limit
+                """),
+                {"limit": limit}
+            ).fetchall()
+            
+            return [
+                {
+                    "job_id": job[0],
+                    "status": job[1],
+                    "progress_pct": job[2],
+                    "symbols_total": job[3],
+                    "symbols_completed": job[4],
+                    "total_records_inserted": job[5],
+                    "created_at": job[6],
+                    "completed_at": job[7]
+                }
+                for job in jobs
+            ]
+        except Exception as e:
+            logger.error(f"Error getting recent backfill jobs: {e}")
+            raise
         finally:
             session.close()

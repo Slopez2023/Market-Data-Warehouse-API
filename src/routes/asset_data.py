@@ -81,11 +81,10 @@ async def get_asset_candles(
         
         # Get candles using available method
         result = db.get_historical_data(
-            symbol=symbol,
-            start_date=start_date.isoformat(),
-            end_date=end_date.isoformat(),
-            timeframe=timeframe,
-            limit=limit
+        symbol=symbol,
+        start=start_date.isoformat(),
+        end=end_date.isoformat(),
+        timeframe=timeframe
         )
 
         if not result:

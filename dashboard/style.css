@@ -92,7 +92,9 @@ body {
 
 /* === STATUS BADGE === */
 .status-badge {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: 6px 12px;
   border-radius: 6px;
   font-size: 12px;
@@ -100,6 +102,7 @@ body {
   text-transform: uppercase;
   letter-spacing: 0.5px;
   animation: pulse-status 2s ease-in-out infinite;
+  white-space: nowrap;
 }
 
 .status-badge.healthy {
@@ -1197,6 +1200,11 @@ body {
   font-size: 12px;
   font-weight: 500;
   color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.checkbox-group label:focus-within {
+  outline: none;
 }
 
 .checkbox-group input[type="checkbox"] {
@@ -1204,6 +1212,25 @@ body {
   height: 16px;
   cursor: pointer;
   accent-color: var(--primary);
+}
+
+.checkbox-group input[type="checkbox"]:focus {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* Form fieldset styling */
+fieldset {
+  border: none;
+  padding: 0;
+  margin: 0;
+}
+
+fieldset legend {
+  display: block;
+  width: 100%;
+  padding: 0;
+  margin-bottom: 8px;
 }
 
 .form-actions {
@@ -1243,6 +1270,115 @@ body {
   .form-actions .btn {
     width: 100%;
   }
+}
+
+/* === KEYBOARD SHORTCUTS HELP MODAL === */
+.shortcuts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.shortcuts-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.shortcuts-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.shortcuts-list::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 4px;
+}
+
+.shortcuts-list::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary);
+}
+
+.shortcut-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background: rgba(15, 147, 112, 0.05);
+  border: 1px solid rgba(15, 147, 112, 0.2);
+  border-radius: 6px;
+  transition: all 0.2s ease;
+  gap: 12px;
+}
+
+.shortcut-item:hover {
+  background: rgba(15, 147, 112, 0.1);
+  border-color: var(--primary);
+  box-shadow: 0 2px 4px rgba(15, 147, 112, 0.1);
+}
+
+.shortcut-item:focus-within {
+  outline: 2px solid var(--primary);
+  outline-offset: -1px;
+}
+
+.shortcut-key {
+  font-family: "Monaco", "Courier New", monospace;
+  background: var(--bg-dark);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--primary);
+  min-width: 130px;
+  text-align: center;
+  flex-shrink: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.shortcut-desc {
+  color: var(--text-secondary);
+  font-size: 13px;
+  flex: 1;
+  text-align: left;
+}
+
+/* === FOCUS STATES FOR ACCESSIBILITY === */
+button:focus,
+input:focus,
+select:focus,
+textarea:focus {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* Asset tab buttons */
+.asset-tab-btn:focus {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+
+/* Skip to main content link (for screen readers) */
+.skip-to-main {
+  position: absolute;
+  top: -40px;
+  left: 0;
+  background: var(--primary);
+  color: white;
+  padding: 8px;
+  text-decoration: none;
+  z-index: 100;
+}
+
+.skip-to-main:focus {
+  top: 0;
+}
+
+/* Color alternatives for status indicators */
+.status-indicator-text {
+  font-weight: 600;
+  font-size: 12px;
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -8,10 +8,14 @@ Can be parameterized via CLI flags to filter symbols, set date ranges, and choos
 import asyncio
 import logging
 import os
+import sys
 from datetime import datetime, timedelta
 import argparse
 from dotenv import load_dotenv
 import asyncpg
+
+# Add parent directory to path for imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.clients.polygon_client import PolygonClient
 from src.services.validation_service import ValidationService
@@ -113,10 +117,10 @@ async def backfill_symbol(
         
         # Fetch from Polygon
         candles = await polygon_client.fetch_range(
-            symbol,
-            timeframe,
-            start_date.strftime('%Y-%m-%d'),
-            end_date.strftime('%Y-%m-%d')
+        symbol,
+        timeframe,
+        start=start_date.strftime('%Y-%m-%d'),
+        end=end_date.strftime('%Y-%m-%d')
         )
         
         if not candles:

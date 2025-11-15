@@ -217,8 +217,8 @@ Database connection pool management for production deployments.
 
 ### PoolConfig
 Configuration for connection pooling:
-- `pool_size`: Initial pool connections (default: 10)
-- `max_overflow`: Additional overflow connections (default: 20)
+- `pool_size`: Initial pool connections (default: 20)
+- `max_overflow`: Additional overflow connections (default: 40)
 - `pool_recycle`: Recycle connections after N seconds (default: 3600)
 - `pool_pre_ping`: Test connections before use (default: True)
 - `echo_pool`: Log pool operations (default: False)

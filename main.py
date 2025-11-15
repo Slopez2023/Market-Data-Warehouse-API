@@ -8,7 +8,7 @@ from typing import Dict, List
 import uuid
 
 from fastapi import FastAPI, HTTPException, Query, Response
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -42,6 +42,8 @@ from src.services.performance_monitor import init_performance_monitor, get_perfo
 from src.services.auth import init_auth_service, get_auth_service
 from src.services.symbol_manager import init_symbol_manager, get_symbol_manager
 from src.services.migration_service import init_migration_service, get_migration_service
+from src.services.backfill_worker import init_backfill_worker
+from src.models import BackfillJobStatus, BackfillJobResponse
 
 # Setup structured logging
 setup_structured_logging(config.log_level)
@@ -169,6 +171,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error("Failed to initialize resilience manager", extra={"error": str(e)})
     
+    # Initialize Backfill Worker
+    try:
+        init_backfill_worker(db, scheduler.polygon_api)
+        logger.info("Backfill worker initialized")
+    except Exception as e:
+        logger.error("Failed to initialize backfill worker", extra={"error": str(e)})
+    
     logger.info("App startup complete")
     yield
     
@@ -190,13 +199,8 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Mount dashboard FIRST (before middleware)
-dashboard_path = os.path.join(os.path.dirname(__file__), "dashboard")
-if os.path.isdir(dashboard_path):
-    app.mount("/dashboard", StaticFiles(directory=dashboard_path, html=True), name="dashboard")
-    logger.info("Dashboard mounted at /dashboard")
-
-# Initialize observability services
+# Initialize observability services BEFORE mounting dashboard
+# This ensures FastAPI docs routes (/docs, /openapi.json) are registered first
 init_metrics(retention_hours=24)
 init_query_cache(max_size=1000, default_ttl=300)
 init_performance_monitor(window_hours=24)
@@ -247,6 +251,38 @@ app.include_router(enrichment_ui_router)
 
 # Asset data routes
 app.include_router(asset_router)
+
+# Serve dashboard files explicitly (not as catch-all)
+# This prevents StaticFiles from intercepting /docs and other API routes
+dashboard_path = os.path.join(os.path.dirname(__file__), "dashboard")
+
+@app.api_route("/dashboard", methods=["GET", "HEAD"])
+async def redirect_dashboard():
+    """Redirect /dashboard to /dashboard/"""
+    return RedirectResponse(url="/dashboard/", status_code=307)
+
+@app.api_route("/dashboard/", methods=["GET", "HEAD"])
+@app.api_route("/dashboard/index.html", methods=["GET", "HEAD"])
+async def serve_dashboard_index():
+    """Serve dashboard index.html"""
+    index_path = os.path.join(dashboard_path, "index.html")
+    if os.path.isfile(index_path):
+        return FileResponse(index_path, media_type="text/html")
+    raise HTTPException(status_code=404, detail="Dashboard not found")
+
+@app.api_route("/dashboard/{filename}", methods=["GET", "HEAD"])
+async def serve_dashboard_file(filename: str):
+    """Serve dashboard static files (CSS, JS, etc)"""
+    # Prevent directory traversal
+    if ".." in filename or filename.startswith("/"):
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    file_path = os.path.join(dashboard_path, filename)
+    if os.path.isfile(file_path):
+        return FileResponse(file_path)
+    raise HTTPException(status_code=404, detail=f"File not found: {filename}")
+
+logger.info("Dashboard routes registered")
 
 
 @app.get("/")
@@ -1871,7 +1907,7 @@ async def trigger_enrichment(
         start_date = end_date - timedelta(days=365)
         
         # Run enrichment
-        result = await enrichment_service.enrich_asset(
+        result = await enrichment_service.enrich_symbol(
             symbol=symbol,
             asset_class=asset_class,
             timeframes=timeframes,
@@ -1897,57 +1933,61 @@ async def trigger_enrichment(
 
 @app.post("/api/v1/backfill")
 async def bulk_backfill(
-    symbols: List[str] = Query(..., description="List of symbols to backfill"),
-    start_date: str = Query(..., description="Start date (YYYY-MM-DD)"),
-    end_date: str = Query(..., description="End date (YYYY-MM-DD)"),
-    timeframes: List[str] = Query(['1d'], description="Timeframes to backfill")
+symbols: List[str] = Query(..., description="List of symbols to backfill"),
+start_date: str = Query(..., description="Start date (YYYY-MM-DD)"),
+end_date: str = Query(..., description="End date (YYYY-MM-DD)"),
+timeframes: List[str] = Query(['1d'], description="Timeframes to backfill")
 ):
     """
-    Trigger backfill for multiple symbols.
-    
+    Trigger backfill for multiple symbols (non-blocking, returns immediately).
+
     Args:
         symbols: List of asset symbols
         start_date: Start date in YYYY-MM-DD format
         end_date: End date in YYYY-MM-DD format
         timeframes: List of timeframes to backfill
-    
+
     Returns:
         Job info with ID and status
     """
     try:
-        import uuid
         from datetime import datetime as dt
-        
+        from src.services.backfill_worker import enqueue_backfill_job
+
         # Validate inputs
         if not symbols:
             raise ValueError("At least one symbol required")
         if len(symbols) > 100:
             raise ValueError("Maximum 100 symbols per request")
-        
+
         # Parse dates
         try:
             start = dt.strptime(start_date, '%Y-%m-%d')
             end = dt.strptime(end_date, '%Y-%m-%d')
         except ValueError:
             raise ValueError("Invalid date format. Use YYYY-MM-DD")
-        
+
         if start > end:
             raise ValueError("Start date must be before end date")
-        
+
         # Create job ID
         job_id = str(uuid.uuid4())
-        
+
+        # Create job record in database
+        db.create_backfill_job(job_id, symbols, start_date, end_date, timeframes)
+
+        # Queue the backfill task (runs in background)
+        enqueue_backfill_job(job_id, symbols, start_date, end_date, timeframes)
+
         # Log the backfill request
-        logger.info(f"Bulk backfill started: {len(symbols)} symbols, {len(timeframes)} timeframes",
+        logger.info(f"Backfill job created: {len(symbols)} symbols, {len(timeframes)} timeframes",
                    extra={
-                       'job_id': job_id,
-                       'symbol_count': len(symbols),
-                       'date_range': f"{start_date} to {end_date}",
-                       'timeframes': timeframes
-                   })
-        
-        # In a production system, this would queue the job
-        # For now, return immediate response
+                        'job_id': job_id,
+                        'symbol_count': len(symbols),
+                        'date_range': f"{start_date} to {end_date}",
+                        'timeframes': timeframes
+                    })
+
         return {
             'job_id': job_id,
             'status': 'queued',
@@ -1961,6 +2001,38 @@ async def bulk_backfill(
     except Exception as e:
         logger.error(f"Error in bulk backfill: {e}", extra={'error': str(e)})
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/v1/backfill/status/{job_id}")
+async def get_backfill_status(job_id: str):
+    """Get progress status of a backfill job."""
+    try:
+        status = db.get_backfill_job_status(job_id)
+        
+        if 'error' in status:
+            raise HTTPException(status_code=404, detail="Job not found")
+        
+        return status
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting backfill status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/v1/backfill/recent")
+async def get_recent_backfill_jobs(limit: int = Query(10, ge=1, le=100)):
+    """Get recent backfill jobs."""
+    try:
+        jobs = db.get_recent_backfill_jobs(limit)
+        return {
+            'jobs': jobs,
+            'timestamp': datetime.utcnow().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Error getting recent backfill jobs: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/api/v1/enrich")
@@ -2404,22 +2476,17 @@ async def trigger_enrichment_endpoint(
         
         # Run enrichment asynchronously (in background)
         # For now, return job queued response
-        
-        # Get record count estimate
-        session = db.SessionLocal()
-        try:
-            from sqlalchemy import text
-            count_query = text("""
-                SELECT COUNT(*) FROM market_data
-                WHERE symbol = :symbol AND timeframe = ANY(:timeframes)
-            """)
-            count = session.execute(
-                count_query,
-                {'symbol': symbol, 'timeframes': timeframes}
-            ).scalar() or 0
-        finally:
-            session.close()
-        
+
+        # Execute enrichment
+        result = await enrichment_service.enrich_symbol(
+            symbol=symbol,
+            asset_class=asset_class,
+            timeframes=timeframes,
+            start_date=start_date,
+            end_date=end_date
+        )
+
+        # Run enrichment asynchronously (in background)
         return {
             'job_id': job_id,
             'symbol': symbol.upper(),

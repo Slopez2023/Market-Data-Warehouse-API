@@ -15,8 +15,8 @@ class PoolConfig:
     
     def __init__(
         self,
-        pool_size: int = 10,
-        max_overflow: int = 20,
+        pool_size: int = 20,
+        max_overflow: int = 40,
         pool_recycle: int = 3600,
         pool_pre_ping: bool = True,
         echo_pool: bool = False,
@@ -26,8 +26,8 @@ class PoolConfig:
         Initialize pool configuration.
         
         Args:
-            pool_size: Number of connections to keep in pool (default 10)
-            max_overflow: Maximum overflow connections (default 20)
+            pool_size: Number of connections to keep in pool (default 20)
+            max_overflow: Maximum overflow connections (default 40)
             pool_recycle: Recycle connections after N seconds (default 3600/1hr)
             pool_pre_ping: Test connections before using (default True)
             echo_pool: Log pool checkout/checkin (default False)

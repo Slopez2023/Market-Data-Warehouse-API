@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS market_data (
     id BIGSERIAL PRIMARY KEY,
     time TIMESTAMPTZ NOT NULL,
     symbol VARCHAR(20) NOT NULL,
+    timeframe VARCHAR(10) DEFAULT '1d',
     open DECIMAL(19,8) NOT NULL,
     high DECIMAL(19,8) NOT NULL,
     low DECIMAL(19,8) NOT NULL,
@@ -21,11 +22,13 @@ CREATE TABLE IF NOT EXISTS market_data (
     
     fetched_at TIMESTAMPTZ DEFAULT NOW(),
     
-    UNIQUE(symbol, time)
+    UNIQUE(symbol, timeframe, time)
 );
 
 -- Indexes for common queries
 CREATE INDEX IF NOT EXISTS idx_symbol_time ON market_data (symbol, time DESC);
+CREATE INDEX IF NOT EXISTS idx_symbol_timeframe ON market_data (symbol, timeframe);
+CREATE INDEX IF NOT EXISTS idx_symbol_timeframe_time ON market_data (symbol, timeframe, time DESC);
 CREATE INDEX IF NOT EXISTS idx_validated ON market_data (validated) WHERE validated = TRUE;
 CREATE INDEX IF NOT EXISTS idx_gap_detected ON market_data (gap_detected) WHERE gap_detected = TRUE;
 CREATE INDEX IF NOT EXISTS idx_time_desc ON market_data (time DESC);

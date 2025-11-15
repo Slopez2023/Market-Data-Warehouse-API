@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 # Allowed timeframes for OHLCV data
 ALLOWED_TIMEFRAMES: List[str] = ['1m', '5m', '15m', '30m', '1h', '4h', '1d', '1w']
-DEFAULT_TIMEFRAMES: List[str] = ['1h', '1d']
+DEFAULT_TIMEFRAMES: List[str] = ['1m', '5m', '15m', '30m', '1h', '4h', '1d', '1w']
 
 
 class ConfigError(Exception):
@@ -144,3 +144,14 @@ try:
 except ConfigError as e:
     logger.error(f"Configuration error: {e}")
     raise
+
+
+# Helper functions for backfill scripts
+def get_db_url() -> str:
+    """Get database URL from config."""
+    return config.database_url
+
+
+def get_polygon_api_key() -> str:
+    """Get Polygon API key from config."""
+    return config.polygon_api_key

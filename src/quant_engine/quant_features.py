@@ -128,8 +128,8 @@ def compute_volatility(df: pd.DataFrame) -> pd.DataFrame:
     df["volatility_50"] = volatility_50 * np.sqrt(252)
 
     # Forward fill NaN
-    df["volatility_20"] = df["volatility_20"].fillna(method="bfill").fillna(0)
-    df["volatility_50"] = df["volatility_50"].fillna(method="bfill").fillna(0)
+    df["volatility_20"] = df["volatility_20"].bfill().fillna(0)
+    df["volatility_50"] = df["volatility_50"].bfill().fillna(0)
 
     return df
 
@@ -153,7 +153,7 @@ def compute_atr(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
     df["atr"] = atr
 
     # Forward fill NaN
-    df["atr"] = df["atr"].fillna(method="bfill").fillna(0)
+    df["atr"] = df["atr"].bfill().fillna(0)
 
     return df
 
@@ -168,7 +168,7 @@ def compute_volume_features(df: pd.DataFrame) -> pd.DataFrame:
     """
     # 20-period rolling average volume
     rolling_vol_20 = df["volume"].rolling(window=20).mean()
-    df["rolling_volume_20"] = rolling_vol_20.fillna(method="bfill").fillna(
+    df["rolling_volume_20"] = rolling_vol_20.bfill().fillna(
         df["volume"].mean()
     )
 

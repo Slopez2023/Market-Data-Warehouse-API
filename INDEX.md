@@ -1,422 +1,278 @@
-# Market Data API - Complete Documentation Index
+# Market Data Warehouse API - Complete Documentation Index
 
-**Status**: Production Ready ✅ | **Version**: 1.0.0 | **Last Updated**: November 12, 2025
+**Last Updated:** November 15, 2025 | **Version:** 2.0.0
 
 ---
 
-## 🎯 Quick Navigation
+## 📋 Getting Started
 
-### Getting Started (New Users)
-1. **[README](README.md)** — Project overview and quick start
-2. **[Installation Guide](/docs/getting-started/INSTALLATION.md)** — Setup and deployment
-3. **[Quick Start (5 minutes)](/docs/getting-started/QUICKSTART.md)** — Get running instantly
+Start here to understand the project and get running:
 
-### Using the API
-- **[API Endpoints Reference](/docs/api/ENDPOINTS.md)** — Complete endpoint documentation
-- **[Quick API Reference](/docs/reference/QUICK_REFERENCE.md)** — CLI cheat sheet & examples
-- **[API Authentication](/docs/api/AUTHENTICATION.md)** — API key management
-- **[API Symbols](/docs/api/SYMBOLS.md)** — Symbol and ticker management
+1. **[README.md](README.md)** - Project overview, quick start, and key features
+2. **[Installation Guide](/docs/getting-started/INSTALLATION.md)** - Setup and configuration
+3. **[Quick Reference](/docs/reference/QUICK_REFERENCE.md)** - Common commands and API calls
 
-### Core Features
-- **[Multi-Timeframe Support](/docs/features/TIMEFRAME_EXPANSION.md)** — 5m to 1w candles with per-symbol config
-- **[Data Validation](/docs/features/DATA_VALIDATION.md)** — Quality checks and anomaly detection
-- **[Performance & Caching](/docs/operations/PERFORMANCE.md)** — Optimization and tuning
+---
 
-### Advanced Analytics
-- **[Earnings Data](/docs/api/ENDPOINTS.md#earnings)** — Historical earnings and beat rates
-- **[News & Sentiment](/docs/api/ENDPOINTS.md#sentiment)** — Article collection with sentiment scoring
-- **[Options & IV](/docs/api/ENDPOINTS.md#options)** — Implied volatility and Greeks
-- **[Volatility Regime](/docs/api/ENDPOINTS.md#volatility)** — Regime classification
-- **[ML Features](/docs/api/ENDPOINTS.md#features)** — Composite feature vectors
+## 📊 Core Features
 
-### Operations & Deployment
-- **[Deployment Guide](/docs/operations/DEPLOYMENT.md)** — Production setup
-- **[Monitoring & Observability](/docs/operations/MONITORING.md)** — Logging and metrics
-- **[Troubleshooting](/docs/operations/TROUBLESHOOTING.md)** — Common issues
+### Market Data & Timeframes
+- **[Multi-Timeframe Guide](/docs/features/TIMEFRAME_EXPANSION.md)** - 7 timeframes per symbol
+- **[Symbols Management](/docs/api/SYMBOLS.md)** - Add, update, and configure symbols
+- **[Crypto Support](/docs/api/CRYPTO.md)** - Cryptocurrency data endpoints
+- **[Data Schema](/docs/reference/DATA_SOURCES.md)** - OHLCV data structure
+
+### Analytics & Enrichment
+- **[Earnings Data](/docs/features/EARNINGS.md)** - Historical earnings with beat rates
+- **[News & Sentiment](/docs/features/SENTIMENT.md)** - News sentiment analysis
+- **[Options & Volatility](/docs/features/OPTIONS_IV.md)** - Options Greeks and IV
+- **[Technical Features](/docs/features/TECHNICAL_FEATURES.md)** - ML-ready feature vectors
+
+### Backfill & Data Management
+- **[Master Backfill](/docs/operations/MASTER_BACKFILL.md)** - Primary OHLCV backfill with gap detection
+- **[Feature Enrichment](/docs/operations/FEATURE_ENRICHMENT.md)** - Technical indicator computation
+- **[Backfill Architecture](/BACKFILL_ARCHITECTURE.md)** - Design and implementation details
+
+---
+
+## 🔐 Security & Management
+
+### Authentication & Authorization
+- **[API Authentication](/docs/api/AUTHENTICATION.md)** - API key validation and management
+- **[API Key Management](/docs/operations/API_KEY_MANAGEMENT.md)** - CRUD operations and audit logging
+
+### Admin Operations
+- **[Symbol Management](/docs/api/SYMBOLS.md)** - Admin endpoints for symbol config
+- **[Audit Logging](/docs/operations/AUDIT_LOGGING.md)** - Complete audit trail of operations
+
+---
+
+## 📡 API Reference
+
+### API Endpoints
+- **[Full Endpoint Reference](/docs/api/ENDPOINTS.md)** - All 40+ endpoints documented
+- **[API Examples](/docs/reference/QUICK_REFERENCE.md)** - Real-world usage examples
+
+### Data Models
+- **[Response Schemas](/docs/api/README.md)** - Pydantic models and validation
+
+---
+
+## 🎯 Operations & Monitoring
+
+### Deployment & Infrastructure
+- **[Deployment Guide](/docs/operations/DEPLOYMENT.md)** - Docker, Kubernetes, production setup
+- **[Troubleshooting](/docs/operations/TROUBLESHOOTING.md)** - Common issues and solutions
+- **[Performance Tuning](/docs/operations/PERFORMANCE.md)** - Optimization techniques
+
+### Observability
+- **[Monitoring Guide](/docs/operations/MONITORING.md)** - Health checks, metrics, alerting
+- **[Observability Index](/docs/observability/OBSERVABILITY_INDEX.md)** - Logging, tracing, metrics
+- **[Observability Quickstart](/docs/observability/OBSERVABILITY_QUICKSTART.md)** - Get started with observability
+
+### Performance & Analysis
+- **[Performance Monitoring](/docs/operations/PERFORMANCE.md)** - Query analysis and bottleneck detection
+- **[Cache Performance](/docs/observability/PERFORMANCE_QUICK_REFERENCE.md)** - Cache hit rates and optimization
+
+---
+
+## 🏗️ Architecture & Development
+
+### System Design
+- **[Architecture Overview](/docs/development/ARCHITECTURE.md)** - System design patterns
+- **[Architecture Review](/docs/architecture/ARCHITECTURE_REVIEW.md)** - In-depth architectural analysis
+- **[Tech Stack](/docs/reference/TECH_STACK.md)** - Technology choices and justification
 
 ### Development
-- **[Architecture Overview](/docs/development/ARCHITECTURE.md)** — System design
-- **[Development Status](/docs/development/DEVELOPMENT_STATUS.md)** — Phase completion
-- **[Testing Guide](/docs/development/TESTING.md)** — Test suite documentation
-- **[Contributing](/docs/development/CONTRIBUTING.md)** — Development workflow
+- **[Contributing Guide](/docs/development/CONTRIBUTING.md)** - Development workflow
+- **[Testing Guide](/docs/development/TESTING.md)** - Running and writing tests
+- **[Development Status](/docs/development/DEVELOPMENT_STATUS.md)** - Feature completion status
 
-### Reference
-- **[Frequently Asked Questions](/docs/reference/FAQ.md)** — Common questions
-- **[Glossary](/docs/reference/GLOSSARY.md)** — Terms and definitions
-- **[Technology Stack](/docs/reference/TECH_STACK.md)** — Languages and tools
-- **[Data Sources](/docs/reference/DATA_SOURCES.md)** — All available data and coverage
+### Code Organization
+- **[Project Structure](#-project-structure)** - Directory organization (see README)
 
 ---
 
-## 📚 Documentation Structure
+## ✅ Project Phases & Milestones
 
-### Getting Started
-```
-docs/getting-started/
-├── README.md              - Overview of getting started
-├── INSTALLATION.md        - Complete installation instructions
-├── QUICKSTART.md          - 5-minute quick start
-└── SETUP_GUIDE.md         - Configuration walkthrough
-```
+### Phase Overview
+- **Phase 1:** Core API with observability ✅
+- **Phase 2:** Load testing & optimization ✅
+- **Phase 3:** API improvements & performance ✅
+- **Phase 4:** Multi-timeframe support ✅
+- **Phase 5:** 1-minute candle support ✅
+- **Phase 6:** Advanced analytics (earnings, sentiment, options) ✅
+- **Phase 7:** Quality metrics and validation ✅
 
-### API Documentation
-```
-docs/api/
-├── README.md              - API overview
-├── ENDPOINTS.md           - All 40+ endpoints with examples
-├── AUTHENTICATION.md      - API key management & security
-├── SYMBOLS.md             - Symbol management endpoints
-└── CRYPTO.md              - Cryptocurrency support
-```
+### Phase Documentation
+- [Phase 1 Complete](/docs/phases/PHASE_1_COMPLETE.md)
+- [Phase 2 Complete](/docs/phases/PHASE_2_COMPLETE.md)
+- [Phase 4 Complete](/docs/phases/PHASE_4_COMPLETE.md)
+- [Phase 6 Summary](/docs/phases/PHASE_6_SUMMARY.md)
+
+---
+
+## 📚 Reference & Learning
+
+### Quick References
+- **[Quick Reference](/docs/reference/QUICK_REFERENCE.md)** - Common commands
+- **[Glossary](/docs/reference/GLOSSARY.md)** - Terminology
+- **[FAQ](/docs/reference/FAQ.md)** - Frequently asked questions
+- **[Data Sources](/docs/reference/DATA_SOURCES.md)** - Data provider information
+
+### Setup & Configuration
+- **[Configuration](/docs/getting-started/INSTALLATION.md#-configuration)** - Environment variables
+- **[TIMEFRAMES_SETUP.md](/TIMEFRAMES_SETUP.md)** - Timeframe configuration
+
+---
+
+## 🔧 Tools & Scripts
+
+### Database & Migrations
+- **Location:** `/database/` - SQL migrations and schema
+- **Service:** `src/services/migration_service.py` - Migration runner
+
+### Backfill Scripts
+- **`master_backfill.py`** - Master backfill coordinator
+- **`backfill_features.py`** - Feature enrichment runner
+- **`scripts/backfill_ohlcv.py`** - Core OHLCV backfill
+- **`backfill_enrichment_data.py`** - Corporate events backfill
+- **`scripts/phase_2_backfill_baseline.py`** - Performance baseline
+
+### Utilities
+- **Location:** `/scripts/` - Various utility scripts
+- **Dashboard:** `/dashboard/` - Frontend files
+
+---
+
+## 📊 Dashboard
 
 ### Features
-```
-docs/features/
-├── README.md              - Features overview
-├── TIMEFRAME_EXPANSION.md - Multi-timeframe implementation
-└── DATA_VALIDATION.md     - Data quality system
-```
+- Real-time data visualization
+- Symbol management interface
+- Backfill & enrichment controls
+- Performance monitoring
+- System status overview
 
-### Operations
-```
-docs/operations/
-├── README.md              - Operations overview
-├── DEPLOYMENT.md          - Production deployment
-├── MONITORING.md          - Observability & metrics
-├── PERFORMANCE.md         - Performance optimization
-└── TROUBLESHOOTING.md     - Debugging & issues
-```
-
-### Development
-```
-docs/development/
-├── README.md              - Development overview
-├── ARCHITECTURE.md        - System design & patterns
-├── DEVELOPMENT_STATUS.md  - Phase status
-├── TESTING.md             - Test suite documentation
-└── CONTRIBUTING.md        - Development workflow
-```
-
-### Reference
-```
-docs/reference/
-├── QUICK_REFERENCE.md     - CLI commands & examples
-├── FAQ.md                 - Frequently asked questions
-├── GLOSSARY.md            - Terms & definitions
-├── TECH_STACK.md          - Technology overview
-└── DATA_SOURCES.md        - All available data sources & coverage
-```
+### Access
+- **Local:** `http://localhost:3001` (when running Docker)
+- **Files:** `/dashboard/` (index.html, script.js, style.css)
 
 ---
 
-## 🚀 Quick Start Commands
+## 🚀 Command Reference
 
-### Docker Deployment
+### Local Development
 ```bash
-# Clone and setup
-git clone https://github.com/Slopez2023/Market-Data-Warehouse-API
-cd MarketDataAPI
+# Run API locally
+python main.py
+# or
+uvicorn main:app --reload
 
-# Configure environment
-cp .env.example .env
-# Edit .env with POLYGON_API_KEY and DB_PASSWORD
-
-# Start all services
-docker-compose up
-```
-
-**Services available at:**
-- API: `http://localhost:8000`
-- Interactive Docs: `http://localhost:8000/docs`
-- Dashboard: `http://localhost:3001`
-- Database: `localhost:5432`
-
-### Running Tests
-```bash
-# All tests (400+ passing)
+# Run tests
 pytest tests/ -v
 
-# By phase/category
-pytest tests/test_phase_*.py -v
-
-# With coverage
+# Run with coverage
 pytest tests/ --cov=src --cov-report=html
-
-# Via API
-curl http://localhost:8000/api/v1/tests/run
 ```
 
-### Common API Calls
-
-**Market Data**
+### Docker Operations
 ```bash
-# List all symbols
-curl http://localhost:8000/api/v1/symbols
+# Start all services
+docker-compose up
 
-# Get daily OHLCV data
-curl "http://localhost:8000/api/v1/historical/AAPL?timeframe=1d&start=2024-01-01&end=2024-12-31"
+# Rebuild images
+docker-compose up --build
 
-# Get hourly data with quality filters
-curl "http://localhost:8000/api/v1/historical/AAPL?timeframe=1h&validated_only=true&min_quality=0.9&start=2024-01-01&end=2024-01-31"
-
-# Get detailed symbol stats
-curl http://localhost:8000/api/v1/symbols/detailed
+# Stop services
+docker-compose down
 ```
 
-**Analytics**
+### Backfill Operations
 ```bash
-# Get earnings history
-curl "http://localhost:8000/api/v1/earnings/AAPL?days=365"
+# Master backfill (all data)
+python master_backfill.py
 
-# Get earnings summary with beat rates
-curl "http://localhost:8000/api/v1/earnings/AAPL/summary"
+# Specific symbols
+python master_backfill.py --symbols AAPL,BTC
 
-# Get news with sentiment
-curl "http://localhost:8000/api/v1/news/AAPL?days=30"
+# Feature enrichment
+python backfill_features.py
 
-# Get sentiment aggregate
-curl "http://localhost:8000/api/v1/sentiment/AAPL?days=30"
-
-# Get volatility regime
-curl "http://localhost:8000/api/v1/volatility/regime/AAPL"
-
-# Get composite ML features
-curl "http://localhost:8000/api/v1/features/composite/AAPL"
-```
-
-**Admin (Requires API Key)**
-```bash
-# Add new symbol to track
-curl -X POST "http://localhost:8000/api/v1/admin/symbols" \
-  -H "X-API-Key: your-key" \
-  -d '{"symbol":"NVDA","name":"NVIDIA","asset_type":"stock","timeframes":["1h","1d"]}'
-
-# Update symbol timeframes
-curl -X PUT "http://localhost:8000/api/v1/admin/symbols/NVDA/timeframes" \
-  -H "X-API-Key: your-key" \
-  -d '{"timeframes":["5m","1h","4h","1d"]}'
-
-# Create API key
-curl -X POST "http://localhost:8000/api/v1/admin/api-keys" \
-  -H "X-API-Key: your-key" \
-  -d '{"name":"mobile-app"}'
-
-# List API keys
-curl "http://localhost:8000/api/v1/admin/api-keys" \
-  -H "X-API-Key: your-key"
-```
-
-**Monitoring**
-```bash
-# System health
-curl http://localhost:8000/health
-
-# Full status
-curl http://localhost:8000/api/v1/status
-
-# Metrics and scheduler info
-curl http://localhost:8000/api/v1/metrics
-
-# Cache performance
-curl http://localhost:8000/api/v1/performance/cache
-
-# Query performance
-curl http://localhost:8000/api/v1/performance/queries
+# Specific timeframe
+python scripts/backfill_ohlcv.py --timeframe 1m
 ```
 
 ---
 
-## 📊 Key Statistics
+## 📋 Standards & Best Practices
 
-| Metric | Value |
-|--------|-------|
-| **API Endpoints** | 40+ |
-| **Tests** | 400+ passing |
-| **Test Pass Rate** | 100% ✅ |
-| **Timeframes Supported** | 7 (5m, 15m, 30m, 1h, 4h, 1d, 1w) |
-| **Symbols Tracked** | 60+ (stocks, ETFs, crypto) |
-| **Database Records** | 100k+ |
-| **Code Coverage** | Comprehensive |
-| **Response Time** | <100ms (cached) |
+### Code Standards
+Defined in [AGENTS.md](AGENTS.md):
+- **Python:** Type hints, async/await, Pydantic models
+- **Naming:** snake_case functions, UPPERCASE constants, CamelCase classes
+- **Testing:** pytest with asyncio, comprehensive mocking
+- **Documentation:** Docstrings for public functions/classes
 
----
-
-## ✅ Feature Completeness
-
-### Market Data
-- ✅ Real-time & historical OHLCV data
-- ✅ 60+ symbols (stocks, ETFs, crypto)
-- ✅ Multi-timeframe support (7 timeframes)
-- ✅ Per-symbol timeframe configuration
-- ✅ Data validation & quality scoring
-- ✅ Anomaly detection
-- ✅ Automatic scheduled backfilling
-
-### Analytics
-- ✅ Earnings data (historical & upcoming)
-- ✅ News & sentiment analysis
-- ✅ Options implied volatility
-- ✅ Volatility regime classification
-- ✅ Composite ML features
-- ✅ Feature importance weights
-
-### Enterprise Features
-- ✅ API key management with full CRUD
-- ✅ Audit logging for all operations
-- ✅ Request authentication & validation
-- ✅ Structured JSON logging
-- ✅ Metrics collection & analysis
-- ✅ Alert management (log & email)
-- ✅ Performance monitoring
-- ✅ Query result caching
-- ✅ Connection pooling
-
-### Infrastructure
-- ✅ Docker & Docker Compose
-- ✅ PostgreSQL with TimescaleDB
-- ✅ Kubernetes-ready
-- ✅ Environment-based configuration
-- ✅ Health checks & metrics
-- ✅ Async/await throughout
-- ✅ Comprehensive testing
+### File Organization
+- **Source Code:** `/src/` - Main application
+- **Tests:** `/tests/` - Test suite
+- **Database:** `/database/` - Migrations and schema
+- **Documentation:** `/docs/` - All documentation
+- **Scripts:** `/scripts/` - Utility scripts
+- **Dashboard:** `/dashboard/` - Frontend files
+- **Config:** `/config/` - Configuration files
 
 ---
 
-## 📈 What's New in Latest Version
+## 📞 Support & Resources
 
-**Multi-Timeframe Support** (Phase 7)
-- Query data in 7 different timeframes: 5m, 15m, 30m, 1h, 4h, 1d, 1w
-- Per-symbol timeframe configuration
-- Admin endpoint: `PUT /api/v1/admin/symbols/{symbol}/timeframes`
-- Automatic backfilling at configured schedule
-- 100+ tests covering timeframe functionality
+### Documentation Structure
+```
+/docs/
+├── api/                 # API reference
+├── getting-started/     # Setup guides
+├── features/            # Feature documentation
+├── operations/          # Operations guides
+├── development/         # Developer guides
+├── architecture/        # Architecture docs
+├── observability/       # Monitoring & logging
+├── phases/              # Phase milestones
+└── reference/           # Quick references
+```
 
-**Advanced Analytics** (Phase 3)
-- News & sentiment scoring
-- Earnings data with beat/miss rates
-- Options IV & Greeks
-- Volatility regime classification
-- Composite ML feature vectors
-
-**Full Observability**
-- Structured logging with trace IDs
-- Metrics collection (requests, errors, latency)
-- Alert management (configurable thresholds)
-- Real-time performance monitoring
-- Cache hit rate tracking
-
----
-
-## 🔍 Finding What You Need
-
-### I want to...
-- **Get started quickly** → [Quick Start](/docs/getting-started/QUICKSTART.md)
-- **Deploy to production** → [Deployment Guide](/docs/operations/DEPLOYMENT.md)
-- **Learn all API endpoints** → [API Reference](/docs/api/ENDPOINTS.md)
-- **Set up monitoring** → [Monitoring Guide](/docs/operations/MONITORING.md)
-- **Understand the architecture** → [Architecture Overview](/docs/development/ARCHITECTURE.md)
-- **Run & write tests** → [Testing Guide](/docs/development/TESTING.md)
-- **Manage API keys** → [Authentication Guide](/docs/api/AUTHENTICATION.md)
-- **Query multi-timeframe data** → [Timeframe Guide](/docs/features/TIMEFRAME_EXPANSION.md)
-- **Use analytics endpoints** → [API Reference - Analytics](/docs/api/ENDPOINTS.md#analytics)
-- **Troubleshoot issues** → [Troubleshooting Guide](/docs/operations/TROUBLESHOOTING.md)
+### Getting Help
+1. Check the [Troubleshooting Guide](/docs/operations/TROUBLESHOOTING.md)
+2. Browse [FAQ](/docs/reference/FAQ.md)
+3. Review [API Examples](/docs/reference/QUICK_REFERENCE.md)
+4. Visit interactive API docs at `http://localhost:8000/docs`
 
 ---
 
-## 🛠️ Development Workflow
+## 🔄 Workflow & Procedures
 
-### Contributing
-1. Read [Contributing Guide](/docs/development/CONTRIBUTING.md)
-2. Create feature branch from `main`
-3. Write tests (all tests must pass)
-4. Update relevant documentation
-5. Submit PR with description
-
-### Testing
-- All changes require tests
-- Run full suite: `pytest tests/ -v`
-- Coverage reports: `pytest tests/ --cov=src --cov-report=html`
-- Current coverage: 100% of critical paths
-
-### Documentation
-- Update docs alongside code changes
-- Follow existing documentation structure
-- Use code examples in docs
-- Keep INDEX.md and README.md current
+### Common Tasks
+- **Adding a Symbol:** See [Symbol Management](/docs/api/SYMBOLS.md)
+- **Configuring Timeframes:** See [Timeframe Guide](/docs/features/TIMEFRAME_EXPANSION.md)
+- **Running Backfill:** See [Master Backfill](/docs/operations/MASTER_BACKFILL.md)
+- **Monitoring System:** See [Monitoring Guide](/docs/operations/MONITORING.md)
+- **Deploying to Production:** See [Deployment Guide](/docs/operations/DEPLOYMENT.md)
 
 ---
 
-## 📋 System Requirements
+## 📈 Project Status Summary
 
-- **Python**: 3.11+
-- **Database**: PostgreSQL 13+
-- **Docker**: 20.10+ (for containerized deployment)
-- **Memory**: 2GB minimum (4GB recommended)
-- **Storage**: 10GB+ (for market data)
-
-### Dependencies
-- FastAPI 0.104.1+ (async API framework)
-- PostgreSQL adapter (asyncpg)
-- Polygon.io SDK
-- pytest (testing)
-- See [Technology Stack](/docs/reference/TECH_STACK.md) for full list
+| Area | Status | Notes |
+|------|--------|-------|
+| **Core API** | ✅ Complete | 40+ endpoints, all production-ready |
+| **Data Backfill** | ✅ Complete | Master backfill with gap detection |
+| **Analytics** | ✅ Complete | Earnings, sentiment, options, IV |
+| **Multi-Timeframe** | ✅ Complete | 7 timeframes with per-symbol config |
+| **Testing** | ✅ Complete | 400+ tests, 100% pass rate |
+| **Documentation** | ✅ Complete | Comprehensive docs with examples |
+| **Deployment** | ✅ Complete | Docker, Docker Compose, Kubernetes-ready |
+| **Observability** | ✅ Complete | Structured logging, metrics, alerts |
 
 ---
 
-## 🚦 Project Status
-
-| Component | Status | Tests |
-|-----------|--------|-------|
-| Core API | ✅ Complete | 50+ |
-| Market Data | ✅ Complete | 40+ |
-| Multi-Timeframe | ✅ Complete | 100+ |
-| Analytics | ✅ Complete | 80+ |
-| API Key Mgmt | ✅ Complete | 70+ |
-| Observability | ✅ Complete | 40+ |
-| Performance | ✅ Complete | 20+ |
-| Documentation | ✅ Complete | - |
-| **Total** | **✅ Complete** | **400+** |
-
----
-
-## 📞 Support & Questions
-
-1. **Check the documentation**: Most answers in [FAQ](/docs/reference/FAQ.md)
-2. **Review examples**: [Quick Reference](/docs/reference/QUICK_REFERENCE.md)
-3. **Troubleshoot**: [Troubleshooting Guide](/docs/operations/TROUBLESHOOTING.md)
-4. **Interactive API docs**: `http://localhost:8000/docs`
-5. **View logs**: `docker logs -f market_data_api`
-
----
-
-## 📝 License & Credits
-
-**Status**: Production Ready ✅  
-**Last Updated**: November 12, 2025  
-**Maintainers**: Market Data API Team
-
-For support, see the documentation links above or check the [FAQ](/docs/reference/FAQ.md).
-
----
-
-## Quick Links Summary
-
-**Essential**
-- [README](README.md) — Start here
-- [Installation](/docs/getting-started/INSTALLATION.md)
-- [API Reference](/docs/api/ENDPOINTS.md)
-
-**For Developers**
-- [Architecture](/docs/development/ARCHITECTURE.md)
-- [Testing](/docs/development/TESTING.md)
-- [Contributing](/docs/development/CONTRIBUTING.md)
-
-**For Operators**
-- [Deployment](/docs/operations/DEPLOYMENT.md)
-- [Monitoring](/docs/operations/MONITORING.md)
-- [Troubleshooting](/docs/operations/TROUBLESHOOTING.md)
-
-**Reference**
-- [FAQ](/docs/reference/FAQ.md)
-- [Glossary](/docs/reference/GLOSSARY.md)
-- [Tech Stack](/docs/reference/TECH_STACK.md)
+**For questions or issues, consult the appropriate documentation section above or check the [Troubleshooting Guide](/docs/operations/TROUBLESHOOTING.md).**

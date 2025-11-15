@@ -226,7 +226,7 @@ docker exec market_data_db psql -U postgres -d market_data -c "
 SELECT usename, count(*) FROM pg_stat_activity GROUP BY usename;"
 
 # Increase pool size
-DB_POOL_SIZE=20  # in .env (default is 10)
+DB_POOL_SIZE=20  # in .env (default is 20)
 
 # Restart API to apply
 docker-compose restart market_data_api

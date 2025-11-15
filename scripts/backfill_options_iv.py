@@ -27,7 +27,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.clients.polygon_client import PolygonClient
 from src.services.options_iv_service import OptionsIVService
-from src.database import Database
+from src.services.database_service import DatabaseService
+from src.config import get_db_url, get_polygon_api_key
 
 load_dotenv()
 logging.basicConfig(
@@ -38,10 +39,10 @@ logger = logging.getLogger(__name__)
 
 
 class OptionsIVBackfiller:
-    def __init__(self, db: Database, polygon_client: PolygonClient):
-        self.db = db
+    def __init__(self, db_service: DatabaseService, polygon_client: PolygonClient):
+        self.db_service = db_service
         self.polygon_client = polygon_client
-        self.options_service = OptionsIVService(db)
+        self.options_service = OptionsIVService(db_service)
 
     async def fetch_options_contracts(
         self, symbol: str, expiration_date: str
@@ -260,27 +261,32 @@ class OptionsIVBackfiller:
             return False
 
 
-async def get_active_symbols(db: Database) -> List[str]:
+def get_active_symbols(db_service: DatabaseService) -> List[str]:
     """Get list of active symbols with options available."""
-    query = """
-    SELECT DISTINCT symbol 
-    FROM tracked_symbols 
-    WHERE active = TRUE 
-    AND asset_class = 'stock'
-    AND symbol IN (
-        SELECT DISTINCT symbol FROM market_data 
-        WHERE timeframe = '1d'
-    )
-    ORDER BY symbol
-    LIMIT 50  -- Start with top 50 by volume
-    """
-
+    from sqlalchemy import text
+    session = db_service.SessionLocal()
+    
     try:
-        records = await db.fetch(query)
-        return [r["symbol"] for r in records]
+        query = text("""
+            SELECT DISTINCT symbol 
+            FROM tracked_symbols 
+            WHERE active = TRUE 
+            AND asset_class = 'stock'
+            AND symbol IN (
+                SELECT DISTINCT symbol FROM market_data 
+                WHERE timeframe = '1d'
+            )
+            ORDER BY symbol
+            LIMIT 50
+        """)
+        
+        records = session.execute(query).fetchall()
+        return [r[0] for r in records]
     except Exception as e:
         logger.error(f"Error fetching symbols: {e}")
         return []
+    finally:
+        session.close()
 
 
 async def main():
@@ -307,14 +313,19 @@ async def main():
     args = parser.parse_args()
 
     # Setup database
-    db_url = os.getenv("DATABASE_URL")
+    db_url = get_db_url()
     if not db_url:
         logger.error("DATABASE_URL not set in environment")
         return
 
-    db = Database(db_url)
-    polygon_client = PolygonClient(os.getenv("POLYGON_API_KEY"))
-    backfiller = OptionsIVBackfiller(db, polygon_client)
+    db_service = DatabaseService(db_url)
+    polygon_api_key = get_polygon_api_key()
+    if not polygon_api_key:
+        logger.error("POLYGON_API_KEY not set in environment")
+        return
+        
+    polygon_client = PolygonClient(polygon_api_key)
+    backfiller = OptionsIVBackfiller(db_service, polygon_client)
 
     logger.info(f"Starting options IV backfill")
     logger.info(f"Lookback period: {args.days} days")
@@ -324,7 +335,7 @@ async def main():
     if args.symbol:
         symbols = [args.symbol]
     else:
-        symbols = await get_active_symbols(db)
+        symbols = get_active_symbols(db_service)
 
     if not symbols:
         logger.error("No symbols to backfill")

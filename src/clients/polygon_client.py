@@ -2,11 +2,35 @@
 
 import aiohttp
 import logging
+import asyncio
+import time
 from typing import List, Dict, Optional
 from datetime import datetime, timedelta
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 logger = logging.getLogger(__name__)
+
+# Rate limiting: Polygon free tier = 150 req/min = 2.5 req/sec
+_RATE_LIMIT_DELAY = 1.0 / 2.5  # ~0.4 seconds between requests
+_last_request_time = 0.0
+_request_lock = None
+
+async def _get_request_lock():
+    """Get or create the request lock"""
+    global _request_lock
+    if _request_lock is None:
+        _request_lock = asyncio.Lock()
+    return _request_lock
+
+async def _rate_limit_wait():
+    """Wait if necessary to maintain rate limit"""
+    global _last_request_time
+    lock = await _get_request_lock()
+    async with lock:
+        elapsed = time.time() - _last_request_time
+        if elapsed < _RATE_LIMIT_DELAY:
+            await asyncio.sleep(_RATE_LIMIT_DELAY - elapsed)
+        _last_request_time = time.time()
 
 # Timeframe to Polygon API mapping
 TIMEFRAME_MAP = {
@@ -129,6 +153,9 @@ class PolygonClient:
         Raises:
             ValueError: If API error, rate limit, or invalid timeframe
         """
+        # Apply rate limiting
+        await _rate_limit_wait()
+        
         # Auto-detect crypto if not specified
         if not is_crypto:
             is_crypto = '-' in symbol or any(crypto in symbol.upper() for crypto in ['BTC', 'ETH', 'USDT', 'USDC'])

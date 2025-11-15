@@ -24,7 +24,7 @@
         </header>
 
         <!-- Alerts Section -->
-        <section id="alerts" class="alerts"></section>
+        <section id="alerts" class="alerts" role="region" aria-live="polite" aria-label="System alerts and status messages"></section>
 
         <!-- Simplified Status Summary -->
         <section class="status-summary">
@@ -106,22 +106,22 @@
         </section>
 
         <!-- Asset Details Modal -->
-        <div id="asset-modal" class="modal" style="display: none;">
+        <div id="asset-modal" class="modal" style="display: none;" role="dialog" aria-labelledby="modal-symbol" aria-modal="true">
             <div class="modal-overlay" onclick="closeAssetModal()"></div>
             <div class="modal-content">
                 <div class="modal-header">
                     <h2 id="modal-symbol">--</h2>
-                    <button class="modal-close" onclick="closeAssetModal()">×</button>
+                    <button class="modal-close" onclick="closeAssetModal()" aria-label="Close asset details dialog">×</button>
                 </div>
 
-                <div class="asset-tabs">
-                    <button class="asset-tab-btn active" onclick="switchAssetTab('overview')">Overview</button>
-                    <button class="asset-tab-btn" onclick="switchAssetTab('candles')">Candle Data</button>
-                    <button class="asset-tab-btn" onclick="switchAssetTab('enrichment')">Enrichment</button>
+                <div class="asset-tabs" role="tablist" aria-label="Asset detail tabs">
+                    <button class="asset-tab-btn active" onclick="switchAssetTab('overview')" role="tab" aria-selected="true" aria-controls="tab-overview">Overview</button>
+                    <button class="asset-tab-btn" onclick="switchAssetTab('candles')" role="tab" aria-selected="false" aria-controls="tab-candles">Candle Data</button>
+                    <button class="asset-tab-btn" onclick="switchAssetTab('enrichment')" role="tab" aria-selected="false" aria-controls="tab-enrichment">Enrichment</button>
                 </div>
 
                 <!-- Overview Tab -->
-                <div id="tab-overview" class="asset-tab-content active">
+                <div id="tab-overview" class="asset-tab-content active" role="tabpanel" aria-labelledby="tab-overview-btn">
                     <div class="overview-grid" id="overview-grid"></div>
                     <div class="timeframes-section">
                         <h4>Records by Timeframe</h4>
@@ -140,8 +140,9 @@
                 </div>
 
                 <!-- Candles Tab -->
-                <div id="tab-candles" class="asset-tab-content" style="display: none;">
+                <div id="tab-candles" class="asset-tab-content" style="display: none;" role="tabpanel" aria-labelledby="tab-candles-btn">
                     <div class="candles-controls">
+                        <label for="candle-timeframe" style="margin-right: 12px;">Timeframe:</label>
                         <select id="candle-timeframe" class="timeframe-select" onchange="loadCandleData(currentSymbol, this.value)">
                             <option value="1m">1 Minute</option>
                             <option value="5m">5 Minutes</option>
@@ -170,82 +171,93 @@
                 </div>
 
                 <!-- Enrichment Tab -->
-                <div id="tab-enrichment" class="asset-tab-content" style="display: none;">
+                <div id="tab-enrichment" class="asset-tab-content" style="display: none;" role="tabpanel" aria-labelledby="tab-enrichment-btn">
                     <div class="enrichment-detail-grid" id="enrichment-grid"></div>
                 </div>
             </div>
         </div>
 
         <!-- Backfill Modal -->
-        <div id="backfill-modal" class="modal" style="display: none;">
-            <div class="modal-overlay" onclick="closeBackfillModal()"></div>
+        <div id="backfill-modal" class="modal" style="display: none;" role="dialog" aria-labelledby="backfill-modal-title" aria-modal="true" aria-describedby="backfill-form-desc">
+            <div class="modal-overlay" onclick="closeBackfillModal()" role="presentation"></div>
             <div class="modal-content modal-form">
                 <div class="modal-header">
-                    <h2>Backfill Data</h2>
-                    <button class="modal-close" onclick="closeBackfillModal()">×</button>
+                    <h2 id="backfill-modal-title">Backfill Data</h2>
+                    <button class="modal-close" onclick="closeBackfillModal()" aria-label="Close backfill dialog">×</button>
                 </div>
 
+                <p id="backfill-form-desc" style="display: none;">Configure symbols, dates, and timeframes for data backfill operation</p>
+
                 <div class="form-group">
-                    <label>Symbols</label>
-                    <div id="backfill-symbols" class="selected-symbols-display">
+                    <label for="backfill-symbols-display">Selected Symbols</label>
+                    <div id="backfill-symbols" class="selected-symbols-display" aria-live="polite" aria-atomic="true">
                         <!-- Will be populated by JS -->
                     </div>
                 </div>
 
                 <div class="form-group">
-                    <label for="backfill-start-date">Start Date</label>
-                    <input type="date" id="backfill-start-date" class="form-input">
+                    <label for="backfill-start-date">Start Date <span aria-label="required">*</span></label>
+                    <input type="date" id="backfill-start-date" class="form-input" aria-required="true" aria-describedby="backfill-start-help">
+                    <small id="backfill-start-help" style="color: var(--text-secondary); font-size: 12px;">Select the earliest date for backfill</small>
                 </div>
 
                 <div class="form-group">
-                    <label for="backfill-end-date">End Date</label>
-                    <input type="date" id="backfill-end-date" class="form-input">
+                    <label for="backfill-end-date">End Date <span aria-label="required">*</span></label>
+                    <input type="date" id="backfill-end-date" class="form-input" aria-required="true" aria-describedby="backfill-end-help">
+                    <small id="backfill-end-help" style="color: var(--text-secondary); font-size: 12px;">Select the latest date for backfill (must be after start date)</small>
                 </div>
 
                 <div class="form-group">
-                    <label>Timeframes</label>
-                    <div id="backfill-timeframes" class="checkbox-group">
-                        <label><input type="checkbox" value="5m" checked> 5m</label>
-                        <label><input type="checkbox" value="15m" checked> 15m</label>
-                        <label><input type="checkbox" value="1h" checked> 1h</label>
-                        <label><input type="checkbox" value="1d" checked> 1d</label>
-                    </div>
+                    <fieldset>
+                        <legend style="color: var(--text-secondary); font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; font-weight: 600;">Timeframes <span aria-label="required">*</span></legend>
+                        <div id="backfill-timeframes" class="checkbox-group" role="group" aria-labelledby="backfill-timeframes-legend" aria-describedby="backfill-timeframes-help">
+                            <label><input type="checkbox" value="5m"> 5m</label>
+                            <label><input type="checkbox" value="15m"> 15m</label>
+                            <label><input type="checkbox" value="1h"> 1h</label>
+                            <label><input type="checkbox" value="1d"> 1d</label>
+                        </div>
+                        <small id="backfill-timeframes-help" style="color: var(--text-secondary); font-size: 12px; display: block; margin-top: 8px;">Select at least one timeframe</small>
+                    </fieldset>
                 </div>
 
                 <div class="form-actions">
-                    <button class="btn btn-secondary" onclick="closeBackfillModal()">Cancel</button>
-                    <button class="btn btn-primary" onclick="submitBackfill()">Start Backfill</button>
+                    <button class="btn btn-secondary" onclick="closeBackfillModal()" aria-label="Cancel backfill operation">Cancel</button>
+                    <button class="btn btn-primary" onclick="submitBackfill()" aria-label="Submit backfill request">Start Backfill</button>
                 </div>
             </div>
         </div>
 
         <!-- Enrichment Modal -->
-        <div id="enrich-modal" class="modal" style="display: none;">
-            <div class="modal-overlay" onclick="closeEnrichModal()"></div>
+        <div id="enrich-modal" class="modal" style="display: none;" role="dialog" aria-labelledby="enrich-modal-title" aria-modal="true" aria-describedby="enrich-form-desc">
+            <div class="modal-overlay" onclick="closeEnrichModal()" role="presentation"></div>
             <div class="modal-content modal-form">
                 <div class="modal-header">
-                    <h2>Re-Enrich Data</h2>
-                    <button class="modal-close" onclick="closeEnrichModal()">×</button>
+                    <h2 id="enrich-modal-title">Re-Enrich Data</h2>
+                    <button class="modal-close" onclick="closeEnrichModal()" aria-label="Close enrichment dialog">×</button>
+                </div>
+
+                <p id="enrich-form-desc" style="display: none;">Configure symbols and timeframe for data enrichment operation</p>
+
+                <div class="form-group">
+                    <label for="enrich-symbols-display">Selected Symbols</label>
+                    <div id="enrich-symbols" class="selected-symbols-display" aria-live="polite" aria-atomic="true"></div>
                 </div>
 
                 <div class="form-group">
-                    <label>Symbols</label>
-                    <div id="enrich-symbols" class="selected-symbols-display"></div>
-                </div>
-
-                <div class="form-group">
-                    <label for="enrich-timeframe">Timeframe</label>
-                    <select id="enrich-timeframe" class="form-input">
+                    <label for="enrich-timeframe">Timeframe <span aria-label="required">*</span></label>
+                    <select id="enrich-timeframe" class="form-input" aria-required="true" aria-describedby="enrich-timeframe-help">
+                        <option value="">Select a timeframe</option>
                         <option value="5m">5 Minutes</option>
                         <option value="15m">15 Minutes</option>
-                        <option value="1h" selected>1 Hour</option>
+                        <option value="1h">1 Hour</option>
                         <option value="1d">Daily</option>
                     </select>
+                    <small id="enrich-timeframe-help" style="color: var(--text-secondary); font-size: 12px; display: block; margin-top: 8px;">Select a timeframe for enrichment</small>
                 </div>
 
                 <div class="form-actions">
-                    <button class="btn btn-secondary" onclick="closeEnrichModal()">Cancel</button>
-                    <button class="btn btn-primary" onclick="submitEnrich()">Start Enrichment</button>
+                    <button class="btn btn-secondary" onclick="closeEnrichModal()" aria-label="Cancel enrichment operation">Cancel</button>
+                    <button class="btn btn-primary" onclick="submitEnrich()" aria-label="Submit enrichment request">Start Enrichment</button>
                 </div>
             </div>
         </div>

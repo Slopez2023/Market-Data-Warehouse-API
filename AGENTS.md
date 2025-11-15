@@ -60,6 +60,33 @@ python scripts/phase_2_backfill_baseline.py
 python main.py  # Scheduler runs daily with parallel_backfill=True by default
 ```
 
+## Master Backfill & Feature Enrichment (Current)
+
+```bash
+# Master backfill: OHLCV with gap detection & retry
+python master_backfill.py                           # All symbols, all timeframes, full history
+python master_backfill.py --symbols AAPL,BTC        # Specific symbols
+python master_backfill.py --timeframes 1h,1d        # Specific timeframes
+python master_backfill.py --days 30                 # Last 30 days only
+python master_backfill.py --max-concurrent 5        # Change concurrency (default: 3)
+
+# Feature enrichment: compute technical indicators
+python backfill_features.py                         # All symbols, all timeframes
+python backfill_features.py --symbols AAPL,BTC      # Specific symbols
+python backfill_features.py --timeframes 1h,1d      # Specific timeframes
+python backfill_features.py --days 365              # 1 year history (default: 365)
+python backfill_features.py --max-concurrent 10     # Parallel enrichment (default: 5)
+
+# Core OHLCV backfill (called by master_backfill.py, also standalone)
+python scripts/backfill_ohlcv.py                    # Default: 1d, all symbols
+python scripts/backfill_ohlcv.py --timeframe 1m     # 1-minute candles
+python scripts/backfill_ohlcv.py --symbols AAPL     # Single symbol
+python scripts/backfill_ohlcv.py --start 2024-01-01 --end 2024-01-31  # Date range
+
+# Corporate events enrichment (dividends, earnings, splits)
+python backfill_enrichment_data.py                  # Backfill all corporate events
+```
+
 ## Architecture
 
 **Tech Stack:** FastAPI (Python 3.11+), PostgreSQL/TimescaleDB, asyncio, Polygon.io API
