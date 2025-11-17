@@ -1657,64 +1657,6 @@ async def get_feature_importance():
 
 
 
-
-
-@app.get("/api/v1/enrichment/status/{symbol}")
-async def get_enrichment_status(symbol: str):
-    """
-    Get enrichment status and latest data quality metrics for a symbol.
-    
-    Args:
-        symbol: Asset symbol
-    
-    Returns:
-        Dict with enrichment status, data freshness, and quality metrics
-    """
-    try:
-        # Get backfill status
-        backfill_status = db.get_backfill_status(symbol, '1d')
-        
-        # Query latest data quality metrics
-        session = db.SessionLocal()
-        try:
-            from sqlalchemy import text
-            result = session.execute(
-                text("""
-                    SELECT symbol, asset_class, metric_date, validation_rate, 
-                           avg_quality_score, data_completeness
-                    FROM data_quality_metrics
-                    WHERE symbol = :symbol
-                    ORDER BY metric_date DESC
-                    LIMIT 1
-                """),
-                {'symbol': symbol}
-            ).first()
-            
-            quality_data = None
-            if result:
-                quality_data = {
-                    'symbol': result[0],
-                    'asset_class': result[1],
-                    'metric_date': result[2].isoformat() if result[2] else None,
-                    'validation_rate': float(result[3]) if result[3] else 0,
-                    'avg_quality_score': float(result[4]) if result[4] else 0,
-                    'data_completeness': float(result[5]) if result[5] else 0
-                }
-        finally:
-            session.close()
-        
-        return {
-            'symbol': symbol,
-            'backfill_status': backfill_status,
-            'quality_metrics': quality_data,
-            'timestamp': datetime.utcnow().isoformat()
-        }
-    
-    except Exception as e:
-        logger.error(f"Error getting enrichment status for {symbol}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 @app.get("/api/v1/enrichment/metrics")
 async def get_enrichment_metrics():
     """
