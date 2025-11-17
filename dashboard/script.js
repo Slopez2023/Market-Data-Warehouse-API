@@ -995,7 +995,7 @@ function updatePipelineMetrics(data) {
   const fetchPipeline = data.fetch_pipeline || {};
   updateMetricValue(
     "fetch-total",
-    formatNumber(fetchPipeline.total_fetches || 0)
+    formatNumber(fetchPipeline.total_jobs || fetchPipeline.total_fetches || 0)
   );
   updateMetricValue(
     "fetch-success-rate",
@@ -1003,11 +1003,11 @@ function updatePipelineMetrics(data) {
   );
   updateMetricValue(
     "fetch-avg-time",
-    (fetchPipeline.avg_response_time_ms || 0).toFixed(0)
+    (fetchPipeline.avg_job_duration_seconds * 1000 || fetchPipeline.avg_response_time_ms || 0).toFixed(0)
   );
   updateMetricValue(
     "fetch-records",
-    formatNumber(data.last_24h?.records_fetched || 0)
+    formatNumber(fetchPipeline.total_records_fetched || data.last_24h?.records_fetched || 0)
   );
 
   // Compute Pipeline
@@ -1022,18 +1022,18 @@ function updatePipelineMetrics(data) {
   );
   updateMetricValue(
     "compute-avg-time",
-    (computePipeline.avg_time_ms || 0).toFixed(0)
+    (computePipeline.avg_computation_time_ms || computePipeline.avg_time_ms || 0).toFixed(0)
   );
   updateMetricValue(
     "compute-features",
-    formatNumber(data.last_24h?.features_computed || 0)
+    formatNumber(computePipeline.total_features_computed || data.last_24h?.features_computed || 0)
   );
 
   // Data Quality
   const dataQuality = data.data_quality || {};
   updateMetricValue(
     "quality-validation",
-    (dataQuality.validation_rate || 0).toFixed(1)
+    (dataQuality.avg_validation_rate || 0).toFixed(1)
   );
   updateMetricValue(
     "quality-score",
@@ -1041,11 +1041,14 @@ function updatePipelineMetrics(data) {
   );
   updateMetricValue(
     "quality-complete",
-    (dataQuality.completeness_rate || 0).toFixed(1)
+    (dataQuality.avg_data_completeness || 0).toFixed(1)
   );
+  
+  // Calculate healthy symbols from health status
+  const healthyCount = data.symbol_health?.healthy || 0;
   updateMetricValue(
     "quality-healthy",
-    formatNumber(dataQuality.symbols_healthy || 0)
+    formatNumber(healthyCount)
   );
 }
 
@@ -1079,7 +1082,7 @@ function getHealthBadge(status) {
 }
 
 /**
- * Update job queue display
+ * Update job queue display with enrichment job data
  */
 function updateJobQueue(data) {
   const jobs = data.jobs || [];
@@ -1087,7 +1090,7 @@ function updateJobQueue(data) {
 
   if (jobs.length === 0) {
     tbody.innerHTML =
-      '<tr><td colspan="5" style="text-align: center; color: var(--text-secondary);">No recent jobs</td></tr>';
+      '<tr><td colspan="6" style="text-align: center; color: var(--text-secondary);">No recent jobs</td></tr>';
     updateMetricValue("job-count", "No jobs recorded");
     return;
   }
@@ -1099,14 +1102,15 @@ function updateJobQueue(data) {
       <td><span class="job-symbol">${escapeHtml(
         job.symbol || "N/A"
       )}</span></td>
-      <td>${job.status || "unknown"}</td>
-      <td>${formatDate(job.completion_time) || "--"}</td>
-      <td>${formatNumber(job.records_processed || 0)}</td>
       <td>
-        <span class="job-success ${job.success ? "success" : "failed"}">
-          ${job.success ? "✓" : "✗"}
+        <span class="job-status ${job.success ? "success" : "failed"}">
+          ${job.success ? "✓ Success" : "✗ Failed"}
         </span>
       </td>
+      <td>${formatNumber(job.records_fetched || 0)}</td>
+      <td>${formatNumber(job.records_inserted || 0)}</td>
+      <td>${(job.response_time_ms || 0).toFixed(0)} ms</td>
+      <td>${formatDate(job.created_at) || "--"}</td>
     </tr>
   `
     )
@@ -1540,17 +1544,8 @@ function formatDateTime(date) {
  * Quick Actions - Manual Backfill
  */
 function triggerManualBackfill() {
-  // Select all symbols for backfill
-  selectedSymbols.clear();
-  if (state.symbols && state.symbols.length > 0) {
-    state.symbols.forEach((s) => selectedSymbols.add(s.symbol));
-    renderSymbolTable();
-    updateSelectionToolbar();
-    persistSelectedSymbols();
-    openBackfillModal();
-  } else {
-    showValidationError("No symbols available for backfill. Please ensure symbols are loaded first.");
-  }
+  // Open backfill modal directly - users can enter symbols manually
+  openBackfillModalDirect();
 }
 
 /**
@@ -1567,6 +1562,135 @@ function viewAdminPanel() {
       toggleSection('admin');
     }
   }
+}
+
+/**
+ * Open backfill modal directly (for Manual Backfill button)
+ * Allows users to enter symbols manually via a text input
+ */
+function openBackfillModalDirect() {
+  const modal = document.getElementById("backfill-modal");
+  const displayDiv = document.getElementById("backfill-symbols");
+
+  // If no symbols selected, show an input field instead
+  if (selectedSymbols.size === 0) {
+    displayDiv.innerHTML = `
+      <div style="width: 100%; display: flex; gap: 8px; margin-bottom: 12px;">
+        <input 
+          type="text" 
+          id="manual-symbol-input" 
+          placeholder="Enter symbols separated by commas (e.g., AAPL,GOOGL,MSFT)" 
+          style="flex: 1; padding: 8px 12px; border: 1px solid var(--border-color); border-radius: 4px; font-size: 13px;"
+        >
+        <button 
+          class="btn btn-sm btn-primary" 
+          onclick="addManualSymbols()"
+          style="white-space: nowrap;"
+        >Add Symbols</button>
+      </div>
+      <div id="manual-symbols-list"></div>
+    `;
+  } else {
+    // Populate selected symbols
+    const symbolsHTML = Array.from(selectedSymbols)
+      .map((s) => `<span class="symbol-tag">${escapeHtml(s)}</span>`)
+      .join("");
+    
+    displayDiv.innerHTML = symbolsHTML;
+  }
+
+  // Set default dates (last 30 days)
+  const today = new Date();
+  const thirtyDaysAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+  document.getElementById("backfill-end-date").value = today
+    .toISOString()
+    .split("T")[0];
+  document.getElementById("backfill-start-date").value = thirtyDaysAgo
+    .toISOString()
+    .split("T")[0];
+
+  // Check at least one timeframe is selected by default
+  ensureDefaultTimeframe();
+
+  modal.style.display = "flex";
+  
+  // Set focus trap for accessibility
+  setupModalFocusTrap(modal);
+
+  // Focus symbol input or first form input
+  setTimeout(() => {
+    const manualInput = document.getElementById("manual-symbol-input");
+    if (manualInput) {
+      manualInput.focus();
+    } else {
+      const firstInput = modal.querySelector(".form-input");
+      if (firstInput) firstInput.focus();
+    }
+  }, 100);
+}
+
+/**
+ * Add manually entered symbols to the selected set
+ */
+function addManualSymbols() {
+  const input = document.getElementById("manual-symbol-input");
+  if (!input) return;
+
+  const symbols = input.value
+    .split(",")
+    .map((s) => s.trim().toUpperCase())
+    .filter((s) => s.length > 0);
+
+  if (symbols.length === 0) {
+    showValidationError("Please enter at least one symbol");
+    return;
+  }
+
+  symbols.forEach((s) => selectedSymbols.add(s));
+  persistSelectedSymbols();
+
+  // Refresh the display to show selected symbols
+  const displayDiv = document.getElementById("backfill-symbols");
+  const symbolsHTML = Array.from(selectedSymbols)
+    .map((s) => `<span class="symbol-tag">${escapeHtml(s)}</span>`)
+    .join("");
+  displayDiv.innerHTML = `
+    <div style="margin-bottom: 12px;">${symbolsHTML}</div>
+    <div style="width: 100%; display: flex; gap: 8px;">
+      <input 
+        type="text" 
+        id="manual-symbol-input" 
+        placeholder="Add more symbols..." 
+        style="flex: 1; padding: 8px 12px; border: 1px solid var(--border-color); border-radius: 4px; font-size: 13px;"
+      >
+      <button 
+        class="btn btn-sm btn-secondary" 
+        onclick="addManualSymbols()"
+        style="white-space: nowrap;"
+      >Add More</button>
+      <button 
+        class="btn btn-sm btn-secondary" 
+        onclick="clearManualSymbols()"
+        style="white-space: nowrap;"
+      >Clear</button>
+    </div>
+  `;
+
+  // Focus the input for potential additional symbols
+  setTimeout(() => {
+    const nextInput = document.getElementById("manual-symbol-input");
+    if (nextInput) nextInput.focus();
+  }, 50);
+}
+
+/**
+ * Clear all manually entered symbols
+ */
+function clearManualSymbols() {
+  selectedSymbols.clear();
+  persistSelectedSymbols();
+  openBackfillModalDirect();
 }
 
 /**

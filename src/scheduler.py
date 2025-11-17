@@ -12,7 +12,6 @@ import asyncpg
 from src.clients.polygon_client import PolygonClient
 from src.services.validation_service import ValidationService
 from src.services.database_service import DatabaseService
-from src.services.data_enrichment_service import DataEnrichmentService
 from src.quant_engine.quant_features import QuantFeatureEngine
 import pandas as pd
 
@@ -81,7 +80,7 @@ class AutoBackfillScheduler:
         self.enrichment_hour = enrichment_hour
         self.enrichment_minute = enrichment_minute
         self.config = config
-        self.enrichment_service: Optional[DataEnrichmentService] = None
+        self.enrichment_service: Optional[object] = None
         
         # Phase 3: Parallel backfill settings
         self.parallel_backfill = parallel_backfill
@@ -719,20 +718,8 @@ class AutoBackfillScheduler:
             raise
     
     def _setup_enrichment_service(self) -> None:
-        """Initialize the data enrichment service"""
-        try:
-            if not self.config:
-                logger.error("Cannot initialize enrichment service: config not provided")
-                return
-            
-            self.enrichment_service = DataEnrichmentService(
-                db_service=self.db_service,
-                config=self.config
-            )
-            logger.info("Data enrichment service initialized")
-        except Exception as e:
-            logger.error(f"Failed to initialize enrichment service: {e}")
-            self.enrichment_enabled = False
+        """Initialize the data enrichment service - disabled"""
+        logger.info("Enrichment service initialization disabled")
     
     async def _enrichment_job(self) -> None:
         """

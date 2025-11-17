@@ -906,6 +906,24 @@ body {
   color: var(--primary);
 }
 
+.job-status {
+  display: inline-block;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.job-status.success {
+  background: rgba(16, 185, 129, 0.15);
+  color: var(--success);
+}
+
+.job-status.failed {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--danger);
+}
+
 .job-success {
   display: inline-block;
   padding: 4px 8px;

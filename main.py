@@ -23,10 +23,7 @@ except Exception:
 from src.config import config, ALLOWED_TIMEFRAMES
 from src.scheduler import AutoBackfillScheduler, get_last_backfill_result, get_last_backfill_time
 from src.services.database_service import DatabaseService
-from src.services.enrichment_scheduler import EnrichmentScheduler
-from src.routes.enrichment_ui import init_enrichment_ui, router as enrichment_ui_router
 from src.routes.asset_data import router as asset_router
-from src.services.resilience_manager import init_resilience_manager
 from src.models import (
     HealthResponse, StatusResponse, AddSymbolRequest, TrackedSymbol,
     APIKeyListResponse, APIKeyCreateResponse, AuditLogEntry, APIKeyAuditResponse,
@@ -41,9 +38,7 @@ from src.services.caching import init_query_cache, get_query_cache
 from src.services.performance_monitor import init_performance_monitor, get_performance_monitor
 from src.services.auth import init_auth_service, get_auth_service
 from src.services.symbol_manager import init_symbol_manager, get_symbol_manager
-from src.services.migration_service import init_migration_service, get_migration_service
 from src.services.backfill_worker import init_backfill_worker
-from src.models import BackfillJobStatus, BackfillJobResponse
 
 # Setup structured logging
 setup_structured_logging(config.log_level)
@@ -61,11 +56,7 @@ scheduler = AutoBackfillScheduler(
     schedule_minute=config.backfill_schedule_minute
 )
 
-# Phase 1g: Enrichment Scheduler
-enrichment_scheduler = None
 
-# Phase 1i: Resilience Manager
-resilience_manager = None
 
 
 @asynccontextmanager
@@ -85,31 +76,6 @@ async def lifespan(app: FastAPI):
         "schedule": f"{config.backfill_schedule_hour:02d}:{config.backfill_schedule_minute:02d} UTC daily"
     })
     
-    # Run database migrations
-    logger.info("Running database migrations...")
-    try:
-        migration_service = init_migration_service(config.database_url)
-        if not await migration_service.run_migrations():
-            logger.error("Database migrations failed")
-            raise RuntimeError("Database migrations failed")
-        logger.info("Database migrations completed successfully")
-    except Exception as e:
-        logger.error("Migration initialization failed", extra={"error": str(e)})
-        raise RuntimeError(f"Failed to initialize database: {str(e)}")
-    
-    # Verify schema
-    logger.info("Verifying database schema...")
-    try:
-        schema_status = await migration_service.verify_schema()
-        all_valid = all(schema_status.values())
-        if not all_valid:
-            logger.error("Schema verification failed", extra={"status": schema_status})
-            raise RuntimeError("Database schema verification failed")
-        logger.info("Schema verification passed")
-    except Exception as e:
-        logger.error("Schema verification failed", extra={"error": str(e)})
-        raise RuntimeError(f"Schema verification failed: {str(e)}")
-    
     # Test database connection
     try:
         metrics = db.get_status_metrics()
@@ -127,50 +93,6 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error("Failed to start scheduler", extra={"error": str(e)})
     
-    # Phase 1g: Initialize Enrichment Scheduler
-    global enrichment_scheduler, resilience_manager
-    try:
-        enrichment_scheduler = EnrichmentScheduler(
-            db_service=db,
-            config=config,
-            enrichment_hour=getattr(config, 'enrichment_schedule_hour', 1),
-            enrichment_minute=getattr(config, 'enrichment_schedule_minute', 30),
-            max_concurrent_symbols=5,
-            max_retries=3,
-            enable_daily_enrichment=True
-        )
-        enrichment_scheduler.start()
-        logger.info("Enrichment scheduler started")
-        
-        # Initialize UI endpoints with database service
-        init_enrichment_ui(enrichment_scheduler, db)
-        
-    except Exception as e:
-        logger.error("Failed to start enrichment scheduler", extra={"error": str(e)})
-    
-    # Phase 1i: Initialize Resilience Manager
-    try:
-        resilience_manager = init_resilience_manager()
-        
-        # Register circuit breaker for API calls
-        resilience_manager.register_circuit_breaker(
-            name="polygon_api",
-            failure_threshold=0.5,
-            recovery_timeout=60
-        )
-        
-        # Register rate limiter
-        resilience_manager.register_rate_limiter(
-            name="enrichment_api",
-            rate=100,
-            interval=60,
-            burst=150
-        )
-        
-        logger.info("Resilience manager initialized")
-    except Exception as e:
-        logger.error("Failed to initialize resilience manager", extra={"error": str(e)})
-    
     # Initialize Backfill Worker
     try:
         init_backfill_worker(db, scheduler.polygon_api)
@@ -185,9 +107,6 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down Market Data API")
     if scheduler.scheduler.running:
         scheduler.stop()
-    
-    if enrichment_scheduler and enrichment_scheduler.is_running:
-        enrichment_scheduler.stop()
     
     logger.info("App shutdown complete")
 
@@ -245,9 +164,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Phase 1h: Include enrichment UI router
-app.include_router(enrichment_ui_router)
 
 # Asset data routes
 app.include_router(asset_router)
@@ -1325,7 +1241,7 @@ async def get_news(
     symbol: str,
     days: int = Query(30, ge=1, le=365),
     limit: int = Query(50, ge=1, le=500),
-    sentiment_filter: str = Query(None, regex="^(bullish|bearish|neutral)$")
+    sentiment_filter: str = Query(None, pattern="^(bullish|bearish|neutral)$")
 ):
     """
     Get recent news for a symbol with optional sentiment filtering.
@@ -1740,10 +1656,7 @@ async def get_feature_importance():
         )
 
 
-@app.on_event("startup")
-async def startup_event():
-    """Additional startup tasks if needed"""
-    logger.info("Additional startup tasks completed")
+
 
 
 @app.get("/api/v1/enrichment/status/{symbol}")
@@ -1896,39 +1809,7 @@ async def trigger_enrichment(
     Returns:
         Enrichment job result
     """
-    try:
-        from src.services.data_enrichment_service import DataEnrichmentService
-        
-        # Initialize enrichment service
-        enrichment_service = DataEnrichmentService(db, config)
-        
-        # Calculate date range (last 365 days)
-        end_date = datetime.utcnow()
-        start_date = end_date - timedelta(days=365)
-        
-        # Run enrichment
-        result = await enrichment_service.enrich_symbol(
-            symbol=symbol,
-            asset_class=asset_class,
-            timeframes=timeframes,
-            start_date=start_date,
-            end_date=end_date
-        )
-        
-        return {
-            'job_id': result.get('job_id'),
-            'symbol': result.get('symbol'),
-            'asset_class': result.get('asset_class'),
-            'success': result.get('success'),
-            'total_inserted': result.get('total_records_inserted'),
-            'total_updated': result.get('total_records_updated'),
-            'timeframes': result.get('timeframes'),
-            'timestamp': datetime.utcnow().isoformat()
-        }
-    
-    except Exception as e:
-        logger.error(f"Error triggering enrichment for {symbol}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    raise HTTPException(status_code=503, detail="Enrichment service is not available")
 
 
 @app.post("/api/v1/backfill")
@@ -2191,10 +2072,7 @@ async def get_data_quality_report(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Additional shutdown tasks if needed"""
-    logger.info("Additional shutdown tasks completed")
+
 
 
 # ============================================================================
@@ -2441,68 +2319,18 @@ async def trigger_enrichment_endpoint(
             "timestamp": "2024-11-13T10:31:00Z"
         }
     """
-    try:
-        from src.services.data_enrichment_service import DataEnrichmentService
-        from datetime import timedelta
-        
-        # Validate inputs
-        if not symbol:
-            raise HTTPException(status_code=400, detail="Symbol required")
-        
-        if asset_class not in ['stock', 'crypto', 'etf']:
-            raise HTTPException(status_code=400, detail="Invalid asset_class")
-        
-        invalid_timeframes = [tf for tf in timeframes if tf not in ALLOWED_TIMEFRAMES]
-        if invalid_timeframes:
-            raise HTTPException(status_code=400, detail=f"Invalid timeframes: {invalid_timeframes}")
-        
-        # Initialize enrichment service
-        enrichment_service = DataEnrichmentService(db, config)
-        
-        # Calculate date range (last 365 days)
-        end_date = datetime.utcnow()
-        start_date = end_date - timedelta(days=365)
-        
-        # Queue enrichment job
-        job_id = str(uuid.uuid4())
-        
-        logger.info(
-            "enrichment_job_triggered",
-            job_id=job_id,
-            symbol=symbol,
-            asset_class=asset_class,
-            timeframes=timeframes
-        )
-        
-        # Run enrichment asynchronously (in background)
-        # For now, return job queued response
-
-        # Execute enrichment
-        result = await enrichment_service.enrich_symbol(
-            symbol=symbol,
-            asset_class=asset_class,
-            timeframes=timeframes,
-            start_date=start_date,
-            end_date=end_date
-        )
-
-        # Run enrichment asynchronously (in background)
-        return {
-            'job_id': job_id,
-            'symbol': symbol.upper(),
-            'asset_class': asset_class,
-            'timeframes': timeframes,
-            'status': 'queued',
-            'total_records_to_process': count,
-            'estimated_duration_seconds': max(30, count // 100),
-            'timestamp': datetime.utcnow().isoformat()
-        }
+    # Validate inputs
+    if not symbol:
+        raise HTTPException(status_code=400, detail="Symbol required")
     
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error triggering enrichment: {e}", extra={'error': str(e)})
-        raise HTTPException(status_code=500, detail=str(e))
+    if asset_class not in ['stock', 'crypto', 'etf']:
+        raise HTTPException(status_code=400, detail="Invalid asset_class")
+    
+    invalid_timeframes = [tf for tf in timeframes if tf not in ALLOWED_TIMEFRAMES]
+    if invalid_timeframes:
+        raise HTTPException(status_code=400, detail=f"Invalid timeframes: {invalid_timeframes}")
+    
+    raise HTTPException(status_code=503, detail="Enrichment service is not available")
 
 
 @app.get("/api/v1/features/quant/{symbol}")

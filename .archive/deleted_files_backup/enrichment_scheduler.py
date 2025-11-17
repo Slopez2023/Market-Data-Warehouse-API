@@ -1,17 +1,12 @@
-"""
-Phase 1g: Advanced Enrichment Scheduler with Error Recovery
-Provides automatic enrichment scheduling with retry logic, monitoring, and status tracking.
-"""
+"""Enrichment scheduler for periodic data enrichment."""
 
-import asyncio
 import logging
+from typing import Optional, Dict, List
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple
+import asyncio
+import uuid
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
-from apscheduler.triggers.interval import IntervalTrigger
-from apscheduler.job import Job
-import asyncpg
 
 from src.services.data_enrichment_service import DataEnrichmentService
 from src.services.structured_logging import StructuredLogger
@@ -20,28 +15,8 @@ logger = logging.getLogger(__name__)
 slogger = StructuredLogger(__name__)
 
 
-class EnrichmentJobStatus:
-    """Track status of individual enrichment jobs"""
-    
-    PENDING = "pending"
-    IN_PROGRESS = "in_progress"
-    COMPLETED = "completed"
-    FAILED = "failed"
-    RETRY = "retry"
-
-
 class EnrichmentScheduler:
-    """
-    Advanced enrichment scheduler with APScheduler integration.
-    
-    Features:
-    - Daily automatic enrichment for all tracked symbols
-    - Per-symbol retry logic with exponential backoff
-    - Parallel processing with configurable concurrency
-    - Comprehensive error recovery and status tracking
-    - Monitoring endpoints for health checks
-    - Enrichment trigger backoff when API limits hit
-    """
+    """Scheduler for periodic enrichment of market data."""
     
     def __init__(
         self,
@@ -54,21 +29,19 @@ class EnrichmentScheduler:
         enable_daily_enrichment: bool = True
     ):
         """
-        Initialize the enrichment scheduler.
+        Initialize enrichment scheduler.
         
         Args:
-            db_service: DatabaseService instance
-            config: AppConfig instance
-            enrichment_hour: UTC hour for daily enrichment (0-23)
-            enrichment_minute: Minute for daily enrichment (0-59)
-            max_concurrent_symbols: Max symbols to process in parallel
-            max_retries: Max retries per symbol on failure
-            enable_daily_enrichment: Enable automatic daily enrichment
+            db_service: Database service instance
+            config: Configuration object
+            enrichment_hour: Hour of day to run enrichment (0-23)
+            enrichment_minute: Minute of hour to run enrichment
+            max_concurrent_symbols: Maximum symbols to enrich concurrently
+            max_retries: Maximum retry attempts for failed enrichments
+            enable_daily_enrichment: Whether to enable daily enrichment schedule
         """
         self.db = db_service
         self.config = config
-        self.enrichment_service = DataEnrichmentService(db_service, config)
-        
         self.enrichment_hour = enrichment_hour
         self.enrichment_minute = enrichment_minute
         self.max_concurrent_symbols = max_concurrent_symbols
@@ -76,481 +49,293 @@ class EnrichmentScheduler:
         self.enable_daily_enrichment = enable_daily_enrichment
         
         self.scheduler = AsyncIOScheduler()
-        
-        # Tracking state
-        self.job_status: Dict[str, Dict] = {}  # symbol -> status, retry_count, etc.
-        self.last_enrichment_time: Optional[datetime] = None
-        self.last_enrichment_result: Optional[Dict] = None
+        self.enrichment_service = None
         self.is_running = False
+        self.is_paused = False
+        
+        # Tracking
+        self.last_run_time: Optional[datetime] = None
+        self.next_run_time: Optional[datetime] = None
+        self.job_history: Dict[str, Dict] = {}
+        
+        logger.info(
+            "EnrichmentScheduler initialized",
+            extra={
+                "hour": enrichment_hour,
+                "minute": enrichment_minute,
+                "max_concurrent": max_concurrent_symbols,
+                "max_retries": max_retries
+            }
+        )
     
     def start(self) -> None:
-        """Start the scheduler"""
-        if self.scheduler.running:
-            slogger.warning("Enrichment scheduler already running")
-            return
-        
-        # Schedule daily enrichment
-        if self.enable_daily_enrichment:
-            trigger = CronTrigger(hour=self.enrichment_hour, minute=self.enrichment_minute)
-            self.scheduler.add_job(
-                self._daily_enrichment_job,
-                trigger=trigger,
-                id="daily_enrichment",
-                name="Daily Data Enrichment",
-                misfire_grace_time=3600  # Allow 1 hour grace period if missed
+        """Start the enrichment scheduler."""
+        try:
+            # Initialize enrichment service
+            self.enrichment_service = DataEnrichmentService(
+                db_service=self.db,
+                config=self.config
             )
-            slogger.info(
-                "daily_enrichment_scheduled",
-                hour=self.enrichment_hour,
-                minute=self.enrichment_minute
-            )
-        
-        self.scheduler.start()
-        self.is_running = True
-        slogger.info("enrichment_scheduler_started")
+            
+            # Schedule daily enrichment if enabled
+            if self.enable_daily_enrichment:
+                self.scheduler.add_job(
+                    self._run_enrichment,
+                    CronTrigger(
+                        hour=self.enrichment_hour,
+                        minute=self.enrichment_minute
+                    ),
+                    id='daily_enrichment',
+                    name='Daily Enrichment'
+                )
+                logger.info(
+                    f"Daily enrichment scheduled for {self.enrichment_hour:02d}:{self.enrichment_minute:02d} UTC"
+                )
+            
+            # Start scheduler
+            self.scheduler.start()
+            self.is_running = True
+            self.is_paused = False
+            
+            slogger.info("Enrichment scheduler started")
+            
+        except Exception as e:
+            logger.error(f"Failed to start enrichment scheduler: {e}")
+            raise
     
     def stop(self) -> None:
-        """Stop the scheduler"""
-        if self.scheduler.running:
-            self.scheduler.shutdown(wait=True)
-            self.is_running = False
-            slogger.info("enrichment_scheduler_stopped")
+        """Stop the enrichment scheduler."""
+        try:
+            if self.scheduler.running:
+                self.scheduler.shutdown()
+                self.is_running = False
+                logger.info("Enrichment scheduler stopped")
+        except Exception as e:
+            logger.error(f"Error stopping enrichment scheduler: {e}")
     
-    async def trigger_enrichment_now(
-        self,
-        symbols: Optional[List[str]] = None,
-        asset_class: Optional[str] = None
-    ) -> Dict:
-        """
-        Manually trigger enrichment immediately.
-        
-        Args:
-            symbols: Specific symbols to enrich (None = all active)
-            asset_class: Filter to specific asset class
-        
-        Returns:
-            Job result dict
-        """
-        slogger.info(
-            "manual_enrichment_triggered",
-            symbols=symbols,
-            asset_class=asset_class
-        )
-        
-        return await self._enrichment_job(
-            symbols=symbols,
-            asset_class=asset_class,
-            manual_trigger=True
-        )
+    def pause(self) -> None:
+        """Pause enrichment scheduler (don't remove jobs)."""
+        self.is_paused = True
+        logger.info("Enrichment scheduler paused")
     
-    async def _daily_enrichment_job(self) -> None:
-        """
-        Main daily enrichment job.
-        Scheduled to run once per day at configured time.
-        """
-        slogger.info("daily_enrichment_job_started")
-        await self._enrichment_job(manual_trigger=False)
+    def resume(self) -> None:
+        """Resume enrichment scheduler."""
+        self.is_paused = False
+        logger.info("Enrichment scheduler resumed")
     
-    async def _enrichment_job(
-        self,
-        symbols: Optional[List[str]] = None,
-        asset_class: Optional[str] = None,
-        manual_trigger: bool = False
-    ) -> Dict:
-        """
-        Complete enrichment pipeline for tracked symbols.
+    async def _run_enrichment(self) -> None:
+        """Run enrichment cycle for all tracked symbols."""
+        if self.is_paused:
+            logger.info("Enrichment scheduler is paused, skipping run")
+            return
         
-        Args:
-            symbols: Specific symbols to enrich
-            asset_class: Filter by asset class
-            manual_trigger: Whether this was manually triggered
-        
-        Returns:
-            Results dict with success/failure stats
-        """
-        job_start = datetime.utcnow()
-        
-        results = {
-            "job_id": None,
-            "manual_trigger": manual_trigger,
-            "started_at": job_start.isoformat(),
-            "symbols_total": 0,
-            "symbols_successful": 0,
-            "symbols_failed": 0,
-            "symbols_retried": 0,
-            "total_records_inserted": 0,
-            "total_records_updated": 0,
-            "processing_symbols": {},
-            "errors": []
-        }
+        job_id = str(uuid.uuid4())
+        self.last_run_time = datetime.utcnow()
+        self.next_run_time = self.last_run_time + timedelta(days=1)
         
         try:
-            # Load symbols to enrich
-            symbols_to_enrich = await self._get_symbols_to_enrich(
-                symbols=symbols,
-                asset_class=asset_class
+            slogger.info(
+                "Enrichment cycle started",
+                extra={'job_id': job_id}
             )
             
-            if not symbols_to_enrich:
-                slogger.warning("no_symbols_to_enrich")
-                results["error"] = "No symbols configured for enrichment"
-                return results
+            # Get list of tracked symbols
+            symbols = self._get_tracked_symbols()
             
-            results["symbols_total"] = len(symbols_to_enrich)
-            slogger.info("enrichment_job_loaded_symbols", count=len(symbols_to_enrich))
+            if not symbols:
+                logger.info("No symbols to enrich")
+                return
             
-            # Process symbols with concurrency control
-            await self._process_symbols_concurrent(
-                symbols_to_enrich,
-                results
-            )
+            # Process symbols in concurrent batches
+            results = []
+            for i in range(0, len(symbols), self.max_concurrent_symbols):
+                batch = symbols[i:i + self.max_concurrent_symbols]
+                batch_tasks = [
+                    self._enrich_symbol_with_retry(symbol)
+                    for symbol in batch
+                ]
+                batch_results = await asyncio.gather(*batch_tasks, return_exceptions=True)
+                results.extend(batch_results)
             
-        except Exception as e:
-            slogger.error("enrichment_job_error", error=str(e))
-            results["errors"].append(str(e))
-            return results
-        
-        finally:
-            # Store results for monitoring
-            self.last_enrichment_time = job_start
-            self.last_enrichment_result = results
-            
-            duration = (datetime.utcnow() - job_start).total_seconds()
-            results["completed_at"] = datetime.utcnow().isoformat()
-            results["duration_seconds"] = duration
+            # Log results
+            successful = sum(1 for r in results if isinstance(r, dict) and r.get('status') == 'success')
+            failed = sum(1 for r in results if isinstance(r, dict) and r.get('status') == 'failed')
             
             slogger.info(
-                "enrichment_job_completed",
-                successful=results["symbols_successful"],
-                failed=results["symbols_failed"],
-                retried=results["symbols_retried"],
-                duration=duration
+                "Enrichment cycle completed",
+                extra={
+                    'job_id': job_id,
+                    'successful': successful,
+                    'failed': failed,
+                    'total': len(results)
+                }
             )
-        
-        return results
-    
-    async def _get_symbols_to_enrich(
-        self,
-        symbols: Optional[List[str]] = None,
-        asset_class: Optional[str] = None
-    ) -> List[Tuple[str, str, List[str]]]:
-        """
-        Get list of symbols to enrich.
-        
-        Returns:
-            List of (symbol, asset_class, timeframes) tuples
-        """
-        try:
-            conn = await asyncpg.connect(self.db.database_url)
             
-            if symbols:
-                # Filter by specific symbols
-                query = """
-                    SELECT symbol, asset_class, timeframes
-                    FROM tracked_symbols
-                    WHERE active = TRUE AND symbol = ANY($1)
-                    ORDER BY symbol ASC
-                """
-                rows = await conn.fetch(query, symbols)
-            elif asset_class:
-                # Filter by asset class
-                query = """
-                    SELECT symbol, asset_class, timeframes
-                    FROM tracked_symbols
-                    WHERE active = TRUE AND asset_class = $1
-                    ORDER BY symbol ASC
-                """
-                rows = await conn.fetch(query, asset_class)
-            else:
-                # Get all active symbols
-                query = """
-                    SELECT symbol, asset_class, timeframes
-                    FROM tracked_symbols
-                    WHERE active = TRUE
-                    ORDER BY symbol ASC
-                """
-                rows = await conn.fetch(query)
+            # Store job history
+            self.job_history[job_id] = {
+                'started_at': self.last_run_time,
+                'completed_at': datetime.utcnow(),
+                'symbols_processed': len(symbols),
+                'successful': successful,
+                'failed': failed
+            }
             
-            await conn.close()
-            
-            return [
-                (row['symbol'], row['asset_class'], row['timeframes'] or ['1d'])
-                for row in rows
-            ]
-        
         except Exception as e:
-            slogger.error("failed_to_load_symbols", error=str(e))
-            return []
+            logger.error(f"Enrichment cycle failed: {e}", extra={'job_id': job_id})
     
-    async def _process_symbols_concurrent(
-        self,
-        symbols_to_enrich: List[Tuple[str, str, List[str]]],
-        results: Dict
-    ) -> None:
-        """
-        Process symbols with concurrency control.
-        
-        Processes max_concurrent_symbols at a time to avoid overload.
-        """
-        # Create semaphore for concurrency control
-        semaphore = asyncio.Semaphore(self.max_concurrent_symbols)
-        
-        async def process_with_semaphore(symbol_tuple):
-            async with semaphore:
-                await self._process_symbol_with_retry(symbol_tuple, results)
-        
-        # Create tasks for all symbols
-        tasks = [
-            process_with_semaphore(symbol_tuple)
-            for symbol_tuple in symbols_to_enrich
-        ]
-        
-        # Wait for all tasks to complete
-        await asyncio.gather(*tasks, return_exceptions=True)
-    
-    async def _process_symbol_with_retry(
-        self,
-        symbol_tuple: Tuple[str, str, List[str]],
-        results: Dict
-    ) -> None:
-        """
-        Process single symbol with retry logic.
-        """
-        symbol, asset_class, timeframes = symbol_tuple
-        
-        # Initialize job status tracking
-        if symbol not in self.job_status:
-            self.job_status[symbol] = {
-                "status": EnrichmentJobStatus.PENDING,
-                "retry_count": 0,
-                "last_error": None,
-                "started_at": None,
-                "completed_at": None
-            }
-        
-        results["processing_symbols"][symbol] = {
-            "status": "processing",
-            "asset_class": asset_class,
-            "timeframes": timeframes
-        }
-        
-        retry_count = 0
-        last_error = None
-        
-        while retry_count <= self.max_retries:
-            try:
-                # Update status
-                self.job_status[symbol]["status"] = EnrichmentJobStatus.IN_PROGRESS
-                self.job_status[symbol]["started_at"] = datetime.utcnow()
-                
-                slogger.info(
-                    "enrichment_started",
-                    symbol=symbol,
-                    asset_class=asset_class,
-                    attempt=retry_count + 1
-                )
-                
-                # Calculate date range (last 365 days)
-                end_date = datetime.utcnow()
-                start_date = end_date - timedelta(days=365)
-                
-                # Run enrichment
-                enrichment_result = await self.enrichment_service.enrich_asset(
-                    symbol=symbol,
-                    asset_class=asset_class,
-                    timeframes=timeframes,
-                    start_date=start_date,
-                    end_date=end_date
-                )
-                
-                # Check result
-                if enrichment_result.get('success'):
-                    # Success
-                    results["symbols_successful"] += 1
-                    results["total_records_inserted"] += enrichment_result.get('total_records_inserted', 0)
-                    results["total_records_updated"] += enrichment_result.get('total_records_updated', 0)
-                    
-                    results["processing_symbols"][symbol] = {
-                        "status": "completed",
-                        "asset_class": asset_class,
-                        "timeframes": timeframes,
-                        "inserted": enrichment_result.get('total_records_inserted', 0),
-                        "updated": enrichment_result.get('total_records_updated', 0)
-                    }
-                    
-                    self.job_status[symbol]["status"] = EnrichmentJobStatus.COMPLETED
-                    self.job_status[symbol]["completed_at"] = datetime.utcnow()
-                    
-                    slogger.info(
-                        "enrichment_completed",
-                        symbol=symbol,
-                        inserted=enrichment_result.get('total_records_inserted', 0),
-                        updated=enrichment_result.get('total_records_updated', 0)
-                    )
-                    return
-                
-                else:
-                    # Enrichment returned failure
-                    error_msg = enrichment_result.get('error', 'Unknown error')
-                    raise Exception(f"Enrichment failed: {error_msg}")
-            
-            except Exception as e:
-                last_error = str(e)
-                slogger.warning(
-                    "enrichment_error",
-                    symbol=symbol,
-                    attempt=retry_count + 1,
-                    error=last_error
-                )
-                
-                retry_count += 1
-                
-                if retry_count <= self.max_retries:
-                    # Calculate exponential backoff: 2s, 4s, 8s
-                    wait_time = 2 ** retry_count
-                    slogger.info(
-                        "enrichment_retry",
-                        symbol=symbol,
-                        attempt=retry_count + 1,
-                        wait_seconds=wait_time
-                    )
-                    
-                    self.job_status[symbol]["status"] = EnrichmentJobStatus.RETRY
-                    self.job_status[symbol]["retry_count"] = retry_count
-                    
-                    await asyncio.sleep(wait_time)
-                else:
-                    # Max retries exceeded
-                    results["symbols_failed"] += 1
-                    results["processing_symbols"][symbol] = {
-                        "status": "failed",
-                        "asset_class": asset_class,
-                        "timeframes": timeframes,
-                        "error": last_error,
-                        "attempts": retry_count
-                    }
-                    results["errors"].append(f"{symbol}: {last_error}")
-                    
-                    self.job_status[symbol]["status"] = EnrichmentJobStatus.FAILED
-                    self.job_status[symbol]["last_error"] = last_error
-                    self.job_status[symbol]["completed_at"] = datetime.utcnow()
-                    
-                    slogger.error(
-                        "enrichment_failed",
-                        symbol=symbol,
-                        attempts=retry_count,
-                        error=last_error
-                    )
-                    return
-    
-    async def get_job_status(self, symbol: Optional[str] = None) -> Dict:
-        """
-        Get status of enrichment jobs.
-        
-        Args:
-            symbol: Get status for specific symbol (None = all)
-        
-        Returns:
-            Status dict
-        """
-        if symbol:
-            return self.job_status.get(symbol, {})
-        return self.job_status
-    
-    async def get_scheduler_status(self) -> Dict:
-        """
-        Get overall scheduler status.
-        
-        Returns:
-            Status dict with scheduler health
-        """
-        return {
-            "running": self.is_running,
-            "scheduler_running": self.scheduler.running,
-            "last_enrichment_time": self.last_enrichment_time.isoformat() if self.last_enrichment_time else None,
-            "last_enrichment_result": {
-                "successful": self.last_enrichment_result.get("symbols_successful") if self.last_enrichment_result else None,
-                "failed": self.last_enrichment_result.get("symbols_failed") if self.last_enrichment_result else None,
-                "duration_seconds": self.last_enrichment_result.get("duration_seconds") if self.last_enrichment_result else None
-            } if self.last_enrichment_result else None,
-            "config": {
-                "enrichment_hour": self.enrichment_hour,
-                "enrichment_minute": self.enrichment_minute,
-                "max_concurrent_symbols": self.max_concurrent_symbols,
-                "max_retries": self.max_retries
-            }
-        }
-    
-    async def get_enrichment_metrics(self) -> Dict:
-        """
-        Get enrichment pipeline metrics.
-        
-        Returns:
-            Comprehensive metrics dict
-        """
+    async def _enrich_symbol_with_retry(self, symbol: str, retry_count: int = 0) -> Dict:
+        """Enrich a single symbol with retry logic."""
         try:
-            conn = await asyncpg.connect(self.db.database_url)
+            if not self.enrichment_service:
+                raise RuntimeError("Enrichment service not initialized")
             
-            # Fetch statistics from logs (last 24 hours)
-            fetch_stats = await conn.fetchrow("""
-                SELECT 
-                    COUNT(*) as total_fetches,
-                    SUM(CASE WHEN success THEN 1 ELSE 0 END) as successful_fetches,
-                    AVG(source_response_time_ms) as avg_response_time_ms,
-                    MAX(api_quota_remaining) as api_quota_remaining
-                FROM enrichment_fetch_log
-                WHERE created_at > NOW() - INTERVAL '24 hours'
-            """)
-            
-            compute_stats = await conn.fetchrow("""
-                SELECT 
-                    COUNT(*) as total_computations,
-                    SUM(CASE WHEN success THEN 1 ELSE 0 END) as successful_computations,
-                    AVG(computation_time_ms) as avg_computation_time_ms
-                FROM enrichment_compute_log
-                WHERE created_at > NOW() - INTERVAL '24 hours'
-            """)
-            
-            quality_stats = await conn.fetchrow("""
-                SELECT 
-                    COUNT(DISTINCT symbol) as symbols_tracked,
-                    AVG(validation_rate) as avg_validation_rate,
-                    AVG(avg_quality_score) as avg_quality_score
-                FROM data_quality_metrics
-                WHERE metric_date > CURRENT_DATE - INTERVAL '7 days'
-            """)
-            
-            await conn.close()
+            result = await self.enrichment_service.enrich_symbol(
+                symbol=symbol,
+                asset_class='stock',  # TODO: Get from tracked_symbols
+                timeframes=['1d'],  # TODO: Get from tracked_symbols
+            )
             
             return {
-                "fetch_pipeline": {
-                    "total_fetches": fetch_stats['total_fetches'] or 0,
-                    "successful": fetch_stats['successful_fetches'] or 0,
-                    "success_rate": round(
-                        (fetch_stats['successful_fetches'] / fetch_stats['total_fetches'] * 100)
-                        if fetch_stats['total_fetches'] else 0,
-                        2
-                    ),
-                    "avg_response_time_ms": int(fetch_stats['avg_response_time_ms'] or 0),
-                    "api_quota_remaining": fetch_stats['api_quota_remaining']
-                },
-                "compute_pipeline": {
-                    "total_computations": compute_stats['total_computations'] or 0,
-                    "successful": compute_stats['successful_computations'] or 0,
-                    "success_rate": round(
-                        (compute_stats['successful_computations'] / compute_stats['total_computations'] * 100)
-                        if compute_stats['total_computations'] else 0,
-                        2
-                    ),
-                    "avg_computation_time_ms": int(compute_stats['avg_computation_time_ms'] or 0)
-                },
-                "data_quality": {
-                    "symbols_tracked": quality_stats['symbols_tracked'] or 0,
-                    "avg_validation_rate": float(quality_stats['avg_validation_rate'] or 0),
-                    "avg_quality_score": float(quality_stats['avg_quality_score'] or 0)
-                }
+                'symbol': symbol,
+                'status': 'success' if not result.get('errors') else 'failed',
+                'errors': result.get('errors', [])
             }
-        
+            
         except Exception as e:
-            slogger.error("failed_to_get_enrichment_metrics", error=str(e))
-            return {}
+            if retry_count < self.max_retries:
+                logger.warning(
+                    f"Enrichment failed for {symbol}, retrying ({retry_count + 1}/{self.max_retries}): {e}"
+                )
+                # Exponential backoff
+                await asyncio.sleep(2 ** retry_count)
+                return await self._enrich_symbol_with_retry(symbol, retry_count + 1)
+            else:
+                logger.error(f"Enrichment failed for {symbol} after {self.max_retries} retries: {e}")
+                return {
+                    'symbol': symbol,
+                    'status': 'failed',
+                    'error': str(e)
+                }
+    
+    def _get_tracked_symbols(self) -> List[str]:
+        """Get list of tracked symbols from database."""
+        try:
+            session = self.db.SessionLocal()
+            try:
+                from sqlalchemy import text
+                
+                symbols = session.execute(
+                    text("SELECT symbol FROM tracked_symbols ORDER BY symbol")
+                ).fetchall()
+                
+                return [s[0] for s in symbols] if symbols else []
+            finally:
+                session.close()
+        except Exception as e:
+            logger.error(f"Error getting tracked symbols: {e}")
+            return []
+    
+    async def trigger_enrichment(
+        self,
+        symbols: List[str],
+        asset_class: str = 'stock',
+        timeframes: Optional[List[str]] = None
+    ) -> str:
+        """
+        Manually trigger enrichment for specific symbols.
+        
+        Args:
+            symbols: List of symbols to enrich
+            asset_class: Asset class (stock, crypto, etc.)
+            timeframes: Timeframes to enrich
+            
+        Returns:
+            Job ID for tracking
+        """
+        if self.is_paused:
+            raise RuntimeError("Enrichment scheduler is paused")
+        
+        job_id = str(uuid.uuid4())
+        
+        try:
+            if not self.enrichment_service:
+                raise RuntimeError("Enrichment service not initialized")
+            
+            if not symbols:
+                logger.warning("No symbols provided to trigger_enrichment")
+                return job_id
+            
+            tasks = [
+                self.enrichment_service.enrich_symbol(
+                    symbol=s,
+                    asset_class=asset_class,
+                    timeframes=timeframes or ['1d']
+                )
+                for s in symbols
+            ]
+            
+            # Store job history before running
+            self.job_history[job_id] = {
+                'started_at': datetime.utcnow(),
+                'symbols': symbols,
+                'status': 'running'
+            }
+            
+            slogger.info(
+                "Enrichment triggered manually",
+                extra={
+                    'job_id': job_id,
+                    'symbols': symbols,
+                    'count': len(symbols)
+                }
+            )
+            
+            # Run enrichments concurrently in background (no await needed)
+            asyncio.create_task(self._run_enrichment_batch(job_id, tasks))
+            
+            return job_id
+            
+        except Exception as e:
+            logger.error(f"Error triggering enrichment: {e}", extra={'job_id': job_id})
+            raise
+    
+    async def _run_enrichment_batch(self, job_id: str, tasks: List) -> None:
+        """Run a batch of enrichment tasks and track results."""
+        try:
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            successful = sum(1 for r in results if isinstance(r, dict) and not r.get('errors'))
+            failed = sum(1 for r in results if isinstance(r, dict) and r.get('errors'))
+            
+            self.job_history[job_id].update({
+                'status': 'completed',
+                'completed_at': datetime.utcnow(),
+                'successful': successful,
+                'failed': failed
+            })
+            
+            slogger.info(
+                "Manual enrichment batch completed",
+                extra={
+                    'job_id': job_id,
+                    'successful': successful,
+                    'failed': failed
+                }
+            )
+        except Exception as e:
+            logger.error(f"Error running enrichment batch {job_id}: {e}")
+            self.job_history[job_id].update({
+                'status': 'failed',
+                'error': str(e),
+                'completed_at': datetime.utcnow()
+            })
+    
+    def get_job_status(self, job_id: str) -> Optional[Dict]:
+        """Get status of a specific enrichment job."""
+        return self.job_history.get(job_id)
+    
+    def get_all_jobs(self, limit: int = 50) -> List[Dict]:
+        """Get recent enrichment jobs."""
+        # Return most recent jobs
+        jobs = list(self.job_history.values())
+        return jobs[-limit:] if limit else jobs

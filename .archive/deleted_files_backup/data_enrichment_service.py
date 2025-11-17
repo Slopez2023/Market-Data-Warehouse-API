@@ -1,500 +1,387 @@
-"""
-Data Enrichment Service
-Main orchestrator for the enrichment pipeline:
-Fetch → Validate → Compute Features → Store
-"""
+"""Data enrichment service for fetching and processing market data enrichments."""
 
-import pandas as pd
+import logging
+from typing import Dict, List, Optional
 from datetime import datetime, timedelta
-from typing import List, Dict, Optional, Tuple
-import uuid
+import asyncio
+from sqlalchemy import text
 
-from src.services.data_aggregator import DataAggregator
-from src.services.feature_computation_service import FeatureComputationService
-from src.services.structured_logging import StructuredLogger
+logger = logging.getLogger(__name__)
 
 
 class DataEnrichmentService:
-    """Main enrichment orchestrator"""
+    """Service for enriching market data with external sources and computed features."""
     
-    def __init__(self, db_service, config=None):
+    def __init__(self, db_service, config):
         """
-        Initialize enrichment service
+        Initialize enrichment service.
         
         Args:
             db_service: Database service instance
-            config: AppConfig instance
+            config: Configuration object
         """
         self.db = db_service
         self.config = config
-        self.aggregator = DataAggregator(config)
-        self.features = FeatureComputationService()
-        self.logger = StructuredLogger(__name__)
     
-    async def enrich_asset(
+    async def enrich_symbol(
         self,
         symbol: str,
-        asset_class: str,
-        timeframes: List[str],
-        start_date: datetime,
-        end_date: datetime,
-        source_priority: Optional[List[str]] = None,
-        backfill_job_id: Optional[str] = None
+        asset_class: str = 'stock',
+        timeframes: Optional[List[str]] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
     ) -> Dict:
         """
-        Complete enrichment pipeline for one asset across timeframes
-        
-        Args:
-            symbol: Asset symbol (e.g., 'BTC', 'AAPL')
-            asset_class: 'stock', 'crypto', or 'etf'
-            timeframes: List of timeframes to enrich ('5m', '1h', '1d', etc.)
-            start_date: Enrichment start date
-            end_date: Enrichment end date
-            source_priority: Source fetch priority
-            backfill_job_id: Optional job ID for backfill tracking
-            
-        Returns:
-            Dict with enrichment results:
-            {
-                'symbol': str,
-                'asset_class': str,
-                'job_id': str,
-                'start_date': str,
-                'end_date': str,
-                'timeframes': {
-                    '1d': {
-                        'status': 'success' | 'failed',
-                        'source': str,
-                        'records_fetched': int,
-                        'records_inserted': int,
-                        'records_updated': int,
-                        'features_computed': int,
-                        'quality_score': float,
-                        'error': str (if failed)
-                    },
-                    ...
-                },
-                'total_records_inserted': int,
-                'total_records_updated': int,
-                'success': bool
-            }
-        """
-        job_id = backfill_job_id or str(uuid.uuid4())
-        
-        results = {
-            'symbol': symbol,
-            'asset_class': asset_class,
-            'job_id': job_id,
-            'start_date': start_date.isoformat(),
-            'end_date': end_date.isoformat(),
-            'timeframes': {},
-            'total_records_inserted': 0,
-            'total_records_updated': 0,
-            'success': True
-        }
-        
-        self.logger.info(
-            "enrichment_started",
-            symbol=symbol,
-            asset_class=asset_class,
-            job_id=job_id,
-            timeframes=timeframes
-        )
-        
-        for timeframe in timeframes:
-            tf_result = await self._enrich_timeframe(
-                symbol=symbol,
-                asset_class=asset_class,
-                timeframe=timeframe,
-                start_date=start_date,
-                end_date=end_date,
-                source_priority=source_priority,
-                job_id=job_id
-            )
-            
-            results['timeframes'][timeframe] = tf_result
-            
-            if tf_result['status'] == 'success':
-                results['total_records_inserted'] += tf_result.get('records_inserted', 0)
-                results['total_records_updated'] += tf_result.get('records_updated', 0)
-            else:
-                results['success'] = False
-        
-        self.logger.info(
-            "enrichment_completed",
-            symbol=symbol,
-            job_id=job_id,
-            success=results['success'],
-            total_inserted=results['total_records_inserted'],
-            total_updated=results['total_records_updated']
-        )
-        
-        return results
-    
-    async def _enrich_timeframe(
-        self,
-        symbol: str,
-        asset_class: str,
-        timeframe: str,
-        start_date: datetime,
-        end_date: datetime,
-        source_priority: Optional[List[str]],
-        job_id: str
-    ) -> Dict:
-        """
-        Enrich single timeframe
+        Enrich data for a symbol across specified timeframes.
         
         Args:
             symbol: Asset symbol
-            asset_class: Asset class
-            timeframe: Timeframe
-            start_date: Start date
-            end_date: End date
-            source_priority: Source priority list
-            job_id: Job ID for tracking
+            asset_class: Asset class (stock, crypto, etf)
+            timeframes: List of timeframes to enrich
+            start_date: Start date for enrichment
+            end_date: End date for enrichment
             
         Returns:
-            Timeframe enrichment result
+            Dictionary with enrichment results
         """
-        result = {
-            'status': 'failed',
-            'source': None,
-            'records_fetched': 0,
-            'records_inserted': 0,
-            'records_updated': 0,
-            'features_computed': 0,
-            'quality_score': 0.0,
-            'error': None
-        }
-        
         try:
-            # 1. FETCH DATA
-            self.logger.info(
-                "enrich_fetching",
-                symbol=symbol,
-                timeframe=timeframe
-            )
+            if not timeframes:
+                timeframes = ['1d']
             
-            fetch_result = await self.aggregator.fetch_ohlcv(
-                symbol=symbol,
-                asset_class=asset_class,
-                timeframe=timeframe,
-                start_date=start_date,
-                end_date=end_date,
-                source_priority=source_priority
-            )
+            if not start_date:
+                start_date = datetime.utcnow() - timedelta(days=365)
             
-            if not fetch_result['success']:
-                result['error'] = fetch_result['error']
-                self.logger.error(
-                    "enrich_fetch_failed",
-                    symbol=symbol,
-                    timeframe=timeframe,
-                    error=result['error']
-                )
-                return result
+            if not end_date:
+                end_date = datetime.utcnow()
             
-            candles = fetch_result['candles']
-            result['source'] = fetch_result['source']
-            result['records_fetched'] = len(candles)
+            results = {
+                'symbol': symbol,
+                'asset_class': asset_class,
+                'timeframes': timeframes,
+                'enrichments': [],
+                'errors': []
+            }
             
-            # 2. VALIDATE DATA
-            self.logger.info(
-                "enrich_validating",
-                symbol=symbol,
-                timeframe=timeframe,
-                records=len(candles)
-            )
+            # Fetch enrichments for each timeframe
+            for timeframe in timeframes:
+                try:
+                    enrichment_data = await self._fetch_enrichments(
+                        symbol, asset_class, timeframe, start_date, end_date
+                    )
+                    
+                    # Store enrichment data
+                    await self._store_enrichment_data(
+                        symbol, timeframe, enrichment_data
+                    )
+                    
+                    results['enrichments'].append({
+                        'timeframe': timeframe,
+                        'records_processed': len(enrichment_data),
+                        'status': 'success'
+                    })
+                    
+                except Exception as e:
+                    logger.error(f"Error enriching {symbol} {timeframe}: {e}")
+                    results['errors'].append({
+                        'timeframe': timeframe,
+                        'error': str(e)
+                    })
             
-            validated_candles, validation_notes = self._validate_data(candles)
-            quality_score = self._calculate_quality_score(validated_candles, validation_notes)
-            result['quality_score'] = quality_score
+            # Update enrichment status
+            await self._update_enrichment_status(symbol, asset_class, results)
             
-            if quality_score < 0.7:
-                result['error'] = f"Quality score too low: {quality_score}"
-                self.logger.warning(
-                    "enrich_low_quality",
-                    symbol=symbol,
-                    timeframe=timeframe,
-                    quality_score=quality_score
-                )
-                return result
+            return results
             
-            # 3. COMPUTE FEATURES
-            self.logger.info(
-                "enrich_computing",
-                symbol=symbol,
-                timeframe=timeframe
-            )
-            
-            # Get crypto data if needed
-            crypto_data = None
-            if asset_class == 'crypto':
-                crypto_data = await self.aggregator.fetch_crypto_microstructure(
-                    symbol=fetch_result['metadata'].get('source_symbol'),
-                    timeframe=timeframe
-                )
-            
-            enriched_candles = self.features.compute_all(
-                validated_candles,
-                asset_class=asset_class,
-                crypto_data=crypto_data if crypto_data and crypto_data.get('success') else None
-            )
-            
-            result['features_computed'] = len([
-                col for col in enriched_candles.columns
-                if col not in ['timestamp', 'open', 'high', 'low', 'close', 'volume']
-            ])
-            
-            # 4. STORE IN DATABASE
-            self.logger.info(
-                "enrich_storing",
-                symbol=symbol,
-                timeframe=timeframe
-            )
-            
-            inserted, updated = await self._store_enriched_data(
-                symbol=symbol,
-                asset_class=asset_class,
-                timeframe=timeframe,
-                source=fetch_result['source'],
-                candles=enriched_candles,
-                quality_score=quality_score,
-                validation_notes=validation_notes,
-                job_id=job_id
-            )
-            
-            result['records_inserted'] = inserted
-            result['records_updated'] = updated
-            result['status'] = 'success'
-            
-            self.logger.info(
-                "enrich_success",
-                symbol=symbol,
-                timeframe=timeframe,
-                inserted=inserted,
-                updated=updated
-            )
-            
-            # 5. UPDATE BACKFILL STATE
-            await self._update_backfill_state(
-                symbol=symbol,
-                asset_class=asset_class,
-                timeframe=timeframe,
-                job_id=job_id,
-                status='completed'
-            )
-            
-            return result
-        
         except Exception as e:
-            result['error'] = str(e)
-            self.logger.error(
-                "enrich_exception",
-                symbol=symbol,
-                timeframe=timeframe,
-                error=str(e)[:200]
-            )
-            
-            # Update backfill state with error
-            await self._update_backfill_state(
-                symbol=symbol,
-                asset_class=asset_class,
-                timeframe=timeframe,
-                job_id=job_id,
-                status='failed',
-                error_message=str(e)[:200]
-            )
-            
-            return result
+            logger.error(f"Error enriching {symbol}: {e}")
+            raise
     
-    def _validate_data(self, candles: pd.DataFrame) -> Tuple[pd.DataFrame, str]:
-        """
-        Validate OHLCV data
-        
-        Returns:
-            Tuple of (validated_df, validation_notes)
-        """
-        df = candles.copy()
-        issues = []
-        
-        # Required fields
-        required = ['timestamp', 'open', 'high', 'low', 'close', 'volume']
-        missing = [col for col in required if col not in df.columns]
-        if missing:
-            issues.append(f"Missing columns: {missing}")
-            return df, '; '.join(issues)
-        
-        initial_count = len(df)
-        
-        # Remove rows with NaN in critical fields
-        df = df.dropna(subset=['open', 'high', 'low', 'close', 'volume'])
-        removed_nan = initial_count - len(df)
-        if removed_nan > 0:
-            issues.append(f"Removed {removed_nan} rows with NaN")
-        
-        # Validate OHLC relationships
-        invalid_mask = (
-            (df['high'] < df['low']) |
-            (df['high'] < df['open']) |
-            (df['high'] < df['close']) |
-            (df['low'] > df['open']) |
-            (df['low'] > df['close']) |
-            (df['volume'] < 0)
-        )
-        
-        invalid_count = invalid_mask.sum()
-        if invalid_count > 0:
-            issues.append(f"Invalid OHLC in {invalid_count} candles")
-            df = df[~invalid_mask]
-        
-        # Check for duplicates
-        duplicates = df.duplicated(subset=['timestamp']).sum()
-        if duplicates > 0:
-            issues.append(f"Found {duplicates} duplicate timestamps")
-            df = df.drop_duplicates(subset=['timestamp'], keep='first')
-        
-        # Sort by timestamp
-        df = df.sort_values('timestamp')
-        
-        # Check timestamp monotonicity
-        if len(df) > 1:
-            ts_diffs = df['timestamp'].diff()[1:]
-            gaps = (ts_diffs <= timedelta(0)).sum()
-            if gaps > 0:
-                issues.append(f"Timestamp gaps: {gaps}")
-        
-        validation_notes = '; '.join(issues) if issues else 'Valid'
-        
-        return df, validation_notes
-    
-    def _calculate_quality_score(self, candles: pd.DataFrame, validation_notes: str) -> float:
-        """
-        Calculate quality score (0-1.0)
-        
-        Formula:
-        - Data completeness: 40%
-        - Validation checks: 30%
-        - Feature values valid: 20%
-        - Data freshness: 10%
-        """
-        score = 1.0
-        
-        # Data completeness
-        expected_cols = ['open', 'high', 'low', 'close', 'volume']
-        completeness = 1.0 - (candles[expected_cols].isna().sum().sum() / (len(candles) * len(expected_cols)))
-        score = score * 0.4 + completeness * 0.4
-        
-        # Validation checks
-        if validation_notes == 'Valid':
-            validation_score = 1.0
-        else:
-            # Penalize based on issues found
-            issue_count = validation_notes.count(';') + 1
-            validation_score = max(0, 1.0 - (issue_count * 0.1))
-        
-        score = score * 0.3 + validation_score * 0.3
-        
-        # Feature values
-        feature_score = 0.8  # Assume good if data is valid
-        score = score * 0.2 + feature_score * 0.2
-        
-        # Freshness (always good for historical data)
-        freshness_score = 1.0
-        score = score * 0.1 + freshness_score * 0.1
-        
-        return float(score)
-    
-    async def _store_enriched_data(
+    async def _fetch_enrichments(
         self,
         symbol: str,
         asset_class: str,
         timeframe: str,
-        source: str,
-        candles: pd.DataFrame,
-        quality_score: float,
-        validation_notes: str,
-        job_id: str
-    ) -> Tuple[int, int]:
-        """
-        Store enriched data in database
-        
-        Returns:
-            Tuple of (records_inserted, records_updated)
-        """
-        inserted = 0
-        updated = 0
+        start_date: datetime,
+        end_date: datetime
+    ) -> List[Dict]:
+        """Fetch enrichment data from external sources."""
+        enrichments = []
         
         try:
-            for idx, row in candles.iterrows():
-                data = {
+            # Fetch dividend data for stocks
+            if asset_class == 'stock':
+                dividends = await self._fetch_dividends(symbol, start_date, end_date)
+                enrichments.extend(dividends)
+            
+            # Fetch earnings data for stocks
+            if asset_class == 'stock':
+                earnings = await self._fetch_earnings(symbol)
+                enrichments.extend(earnings)
+            
+            # Fetch news
+            news = await self._fetch_news(symbol, timeframe, start_date, end_date)
+            enrichments.extend(news)
+            
+            # Compute technical features
+            features = await self._compute_features(symbol, timeframe, start_date, end_date)
+            enrichments.extend(features)
+            
+        except Exception as e:
+            logger.error(f"Error fetching enrichments for {symbol}: {e}")
+        
+        return enrichments
+    
+    async def _fetch_dividends(
+        self,
+        symbol: str,
+        start_date: datetime,
+        end_date: datetime
+    ) -> List[Dict]:
+        """Fetch dividend data for a stock from external sources."""
+        try:
+            logger.debug(f"Fetching dividends for {symbol} ({start_date} to {end_date})")
+            
+            # Import Polygon client if available
+            try:
+                from src.clients.polygon_client import PolygonClient
+                
+                api_key = self.config.POLYGON_API_KEY
+                if not api_key:
+                    logger.warning("POLYGON_API_KEY not configured, skipping dividend fetch")
+                    return []
+                
+                polygon = PolygonClient(api_key)
+                dividends = await polygon.fetch_dividends(
+                    symbol,
+                    start_date.strftime('%Y-%m-%d'),
+                    end_date.strftime('%Y-%m-%d')
+                )
+                
+                logger.info(f"Fetched {len(dividends) if dividends else 0} dividend records for {symbol}")
+                return dividends or []
+                
+            except ImportError:
+                logger.warning("Polygon client not available for dividend fetch")
+                return []
+        except Exception as e:
+            logger.error(f"Error fetching dividends for {symbol}: {e}")
+            return []
+    
+    async def _fetch_earnings(self, symbol: str) -> List[Dict]:
+        """Fetch earnings data for a stock from external sources."""
+        try:
+            logger.debug(f"Fetching earnings for {symbol}")
+            
+            # Import earnings service if available
+            try:
+                from src.services.earnings_service import EarningsService
+                
+                earnings_svc = EarningsService(self.db)
+                earnings = await earnings_svc.get_earnings_by_symbol(
+                    symbol,
+                    days_back=1095  # 3 years
+                )
+                
+                logger.info(f"Fetched {len(earnings) if earnings else 0} earnings records for {symbol}")
+                return earnings or []
+                
+            except ImportError:
+                logger.warning("Earnings service not available for earnings fetch")
+                return []
+        except Exception as e:
+            logger.error(f"Error fetching earnings for {symbol}: {e}")
+            return []
+    
+    async def _fetch_news(
+        self,
+        symbol: str,
+        timeframe: str,
+        start_date: datetime,
+        end_date: datetime
+    ) -> List[Dict]:
+        """Fetch news articles for a symbol."""
+        try:
+            # This would normally call news API
+            logger.debug(f"Fetching news for {symbol}")
+            return []
+        except Exception as e:
+            logger.error(f"Error fetching news for {symbol}: {e}")
+            return []
+    
+    async def _compute_features(
+        self,
+        symbol: str,
+        timeframe: str,
+        start_date: datetime,
+        end_date: datetime
+    ) -> List[Dict]:
+        """Compute technical features from OHLCV data."""
+        try:
+            session = self.db.SessionLocal()
+            
+            try:
+                # Fetch OHLCV data
+                data = session.execute(text("""
+                    SELECT time, open, high, low, close, volume
+                    FROM market_data
+                    WHERE symbol = :symbol AND timeframe = :timeframe
+                    AND time BETWEEN :start AND :end
+                    ORDER BY time
+                """), {
                     'symbol': symbol,
-                    'asset_class': asset_class,
                     'timeframe': timeframe,
-                    'timestamp': row['timestamp'],
-                    'open': float(row['open']) if pd.notna(row['open']) else None,
-                    'high': float(row['high']) if pd.notna(row['high']) else None,
-                    'low': float(row['low']) if pd.notna(row['low']) else None,
-                    'close': float(row['close']) if pd.notna(row['close']) else None,
-                    'volume': int(row['volume']) if pd.notna(row['volume']) else None,
-                    'source': source,
-                    'is_validated': True,
-                    'quality_score': quality_score,
-                    'validation_notes': validation_notes,
-                    'fetched_at': datetime.utcnow(),
-                    'computed_at': datetime.utcnow()
-                }
+                    'start': start_date,
+                    'end': end_date
+                }).fetchall()
                 
-                # Add feature columns
-                feature_cols = [col for col in row.index if col not in [
-                    'timestamp', 'open', 'high', 'low', 'close', 'volume'
-                ]]
+                features = []
                 
-                for col in feature_cols:
-                    if col in row and pd.notna(row[col]):
-                        data[col] = float(row[col]) if isinstance(row[col], (int, float)) else row[col]
+                if len(data) > 0:
+                    closes = [row[4] for row in data]
+                    
+                    # Compute moving averages
+                    ma_20 = sum(closes[-20:]) / len(closes[-20:]) if len(closes) >= 20 else None
+                    ma_50 = sum(closes[-50:]) / len(closes[-50:]) if len(closes) >= 50 else None
+                    
+                    # Compute volatility
+                    if len(closes) > 1:
+                        returns = [(closes[i] - closes[i-1]) / closes[i-1] for i in range(1, len(closes))]
+                        volatility = (sum(r**2 for r in returns) / len(returns)) ** 0.5
+                    else:
+                        volatility = None
+                    
+                    features.append({
+                        'type': 'technical_indicators',
+                        'ma_20': ma_20,
+                        'ma_50': ma_50,
+                        'volatility': volatility
+                    })
                 
-                # UPSERT into database
-                result = await self.db.upsert_market_data_v2(data)
+                return features
                 
-                if result['inserted']:
-                    inserted += 1
-                elif result['updated']:
-                    updated += 1
-            
-            return inserted, updated
+            finally:
+                session.close()
         
         except Exception as e:
-            self.logger.error(
-                "store_enriched_data_error",
-                symbol=symbol,
-                timeframe=timeframe,
-                error=str(e)
-            )
-            return inserted, updated
+            logger.error(f"Error computing features for {symbol}: {e}")
+            return []
     
-    async def _update_backfill_state(
+    async def _store_enrichment_data(
+        self,
+        symbol: str,
+        timeframe: str,
+        enrichment_data: List[Dict]
+    ) -> None:
+        """Store enrichment data in database."""
+        try:
+            session = self.db.SessionLocal()
+            
+            try:
+                for enrichment in enrichment_data:
+                    # Store fetch log
+                    session.execute(text("""
+                        INSERT INTO enrichment_fetch_log
+                        (symbol, source, timeframe, records_fetched, success, created_at)
+                        VALUES (:symbol, :source, :timeframe, :records, :success, NOW())
+                    """), {
+                        'symbol': symbol,
+                        'source': enrichment.get('source', 'internal'),
+                        'timeframe': timeframe,
+                        'records': len(enrichment_data),
+                        'success': True
+                    })
+                
+                session.commit()
+            
+            except Exception as e:
+                session.rollback()
+                logger.error(f"Error storing enrichment data: {e}")
+            
+            finally:
+                session.close()
+        
+        except Exception as e:
+            logger.error(f"Error storing enrichment data: {e}")
+    
+    async def _update_enrichment_status(
         self,
         symbol: str,
         asset_class: str,
-        timeframe: str,
-        job_id: str,
-        status: str,
-        error_message: Optional[str] = None
-    ):
-        """Update backfill tracking table"""
+        results: Dict
+    ) -> None:
+        """Update enrichment status for a symbol."""
         try:
-            await self.db.update_backfill_state(
-                symbol=symbol,
-                asset_class=asset_class,
-                timeframe=timeframe,
-                job_id=job_id,
-                status=status,
-                error_message=error_message
-            )
+            session = self.db.SessionLocal()
+            
+            try:
+                # Check if status exists
+                existing = session.execute(text("""
+                    SELECT id FROM enrichment_status WHERE symbol = :symbol
+                """), {'symbol': symbol}).first()
+                
+                if existing:
+                    # Update existing status
+                    session.execute(text("""
+                        UPDATE enrichment_status
+                        SET status = :status,
+                            last_enriched_at = NOW(),
+                            updated_at = NOW()
+                        WHERE symbol = :symbol
+                    """), {
+                        'symbol': symbol,
+                        'status': 'completed' if not results['errors'] else 'warning'
+                    })
+                else:
+                    # Insert new status
+                    session.execute(text("""
+                        INSERT INTO enrichment_status
+                        (symbol, asset_class, status, last_enriched_at, created_at, updated_at)
+                        VALUES (:symbol, :asset_class, :status, NOW(), NOW(), NOW())
+                    """), {
+                        'symbol': symbol,
+                        'asset_class': asset_class,
+                        'status': 'completed' if not results['errors'] else 'warning'
+                    })
+                
+                session.commit()
+            
+            except Exception as e:
+                session.rollback()
+                logger.error(f"Error updating enrichment status: {e}")
+            
+            finally:
+                session.close()
+        
         except Exception as e:
-            self.logger.warning(
-                "backfill_state_update_error",
-                symbol=symbol,
-                error=str(e)
-            )
+            logger.error(f"Error updating enrichment status: {e}")
+    
+    async def get_enrichment_status(self, symbol: str) -> Optional[Dict]:
+        """Get current enrichment status for a symbol."""
+        try:
+            session = self.db.SessionLocal()
+            
+            try:
+                status = session.execute(text("""
+                    SELECT symbol, asset_class, last_enriched_at, data_freshness_seconds, is_stale, consecutive_failures
+                    FROM enrichment_status
+                    WHERE symbol = :symbol
+                """), {'symbol': symbol}).first()
+                
+                if status:
+                    return {
+                        'symbol': status[0],
+                        'asset_class': status[1],
+                        'status': status[2],
+                        'last_enriched_at': status[3],
+                        'records_available': status[4],
+                        'quality_score': status[5]
+                    }
+                
+                return None
+            
+            finally:
+                session.close()
+        
+        except Exception as e:
+            logger.error(f"Error getting enrichment status: {e}")
+            return None
