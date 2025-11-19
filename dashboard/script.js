@@ -939,26 +939,42 @@ async function testHealth() {
  */
 async function updateEnrichmentData() {
   try {
-    // Fetch all enrichment endpoints in parallel
+    // Get status data which contains basic metrics
+    const statusResponse = await fetch(`${CONFIG.API_BASE}/api/v1/status`);
+    const status = statusResponse.ok ? await statusResponse.json() : null;
+    
+    // Try to fetch enrichment endpoints but don't fail if they don't exist
     const [overview, metrics, health, history] = await Promise.all([
       fetch(`${CONFIG.API_BASE}/api/v1/enrichment/dashboard/overview`)
-        .then((r) => r.json())
+        .then((r) => r.ok ? r.json() : null)
         .catch(() => null),
       fetch(`${CONFIG.API_BASE}/api/v1/enrichment/dashboard/metrics`)
-        .then((r) => r.json())
+        .then((r) => r.ok ? r.json() : null)
         .catch(() => null),
       fetch(`${CONFIG.API_BASE}/api/v1/enrichment/dashboard/health`)
-        .then((r) => r.json())
+        .then((r) => r.ok ? r.json() : null)
         .catch(() => null),
       fetch(`${CONFIG.API_BASE}/api/v1/enrichment/history?limit=10`)
-        .then((r) => r.json())
+        .then((r) => r.ok ? r.json() : null)
         .catch(() => null),
     ]);
 
+    // Update with available data
     if (overview) updateEnrichmentStatus(overview);
     if (metrics) updatePipelineMetrics(metrics);
     if (health) updateHealthStatus(health);
     if (history) updateJobQueue(history);
+    
+    // If enrichment endpoints don't exist, generate synthetic data from status
+    if (!overview && status?.database) {
+      updateEnrichmentStatusFromStatus(status);
+    }
+    if (!metrics && status?.database) {
+      updatePipelineMetricsFromStatus(status);
+    }
+    if (!health && status) {
+      updateHealthStatusFromStatus(status);
+    }
   } catch (error) {
     console.warn("Error loading enrichment data:", error);
   }
@@ -1118,6 +1134,59 @@ function updateJobQueue(data) {
 
   tbody.innerHTML = html;
   updateMetricValue("job-count", `Showing ${jobs.length} recent jobs`);
+}
+
+/**
+ * Fallback: Update enrichment status from status endpoint
+ */
+function updateEnrichmentStatusFromStatus(status) {
+  const db = status.database || {};
+  const isRunning = status.data_quality?.scheduler_status === "running";
+  
+  updateMetricValue("enrichment-scheduler-status", isRunning ? "🟢 Running" : "⚫ Stopped");
+  updateMetricValue("enrichment-last-run", formatDate(db.latest_data) || "Never");
+  updateMetricValue("enrichment-next-run", "Check scheduler");
+  updateMetricValue("enrichment-success-rate", "N/A");
+  updateMetricValue("enrichment-symbols-count", `${db.symbols_available || 0}/60`);
+  updateMetricValue("enrichment-avg-time", "N/A");
+}
+
+/**
+ * Fallback: Update pipeline metrics from status endpoint
+ */
+function updatePipelineMetricsFromStatus(status) {
+  const db = status.database || {};
+  const dq = status.data_quality || {};
+  
+  // Fetch pipeline
+  updateMetricValue("fetch-total", formatNumber(db.total_records || 0));
+  updateMetricValue("fetch-success-rate", (db.validation_rate_pct || 0).toFixed(1));
+  updateMetricValue("fetch-avg-time", "N/A");
+  updateMetricValue("fetch-records", formatNumber(db.total_records || 0));
+  
+  // Compute pipeline
+  updateMetricValue("compute-total", "N/A");
+  updateMetricValue("compute-success-rate", "N/A");
+  updateMetricValue("compute-avg-time", "N/A");
+  updateMetricValue("compute-features", "N/A");
+  
+  // Data quality
+  updateMetricValue("quality-validation", (db.validation_rate_pct || 0).toFixed(1));
+  updateMetricValue("quality-score", "N/A");
+  updateMetricValue("quality-complete", "N/A");
+  updateMetricValue("quality-healthy", formatNumber(db.symbols_available || 0));
+}
+
+/**
+ * Fallback: Update health status from status endpoint
+ */
+function updateHealthStatusFromStatus(status) {
+  const isRunning = status.data_quality?.scheduler_status === "running";
+  
+  updateMetricValue("health-scheduler", isRunning ? "🟢 Healthy" : "⚫ Stopped");
+  updateMetricValue("health-database", "🟢 Healthy");
+  updateMetricValue("health-api", "🟢 Healthy");
+  updateMetricValue("health-failures", "N/A");
 }
 
 /**
@@ -1880,18 +1949,20 @@ async function submitBackfill() {
       timeframes,
     });
 
-    // Build query string
-    const params = new URLSearchParams();
-    symbols.forEach((s) => params.append("symbols", s));
-    params.append("start_date", startDate);
-    params.append("end_date", endDate);
-    timeframes.forEach((t) => params.append("timeframes", t));
+    // Build request body (preferred over query params due to URL length limits)
+    const requestBody = {
+      symbols: symbols,
+      start_date: startDate,
+      end_date: endDate,
+      timeframes: timeframes
+    };
 
     const response = await fetch(
-      `${CONFIG.API_BASE}/api/v1/backfill?${params.toString()}`,
+      `${CONFIG.API_BASE}/api/v1/backfill`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requestBody)
       }
     );
 
@@ -2232,4 +2303,508 @@ async function submitEnrich() {
 function setupCollapsibleSections() {
   // This is called from DOMContentLoaded
   // The actual toggle is handled by toggleSection()
+}
+
+/**
+ * Helper: Escape HTML to prevent XSS
+ */
+function escapeHtml(text) {
+  if (!text) return '';
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+/**
+ * Helper: Get selected symbols array
+ */
+function getSelectedSymbols() {
+  return Array.from(selectedSymbols);
+}
+
+/**
+ * Helper: Format number with commas
+ */
+function formatNumber(num) {
+  if (num === null || num === undefined) return "0";
+  return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
+/**
+ * Helper: Format date/time
+ */
+function formatDate(dateString) {
+  if (!dateString) return null;
+  try {
+    const date = new Date(dateString);
+    if (isNaN(date)) return dateString;
+    return date.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  } catch {
+    return dateString;
+  }
+}
+
+/**
+ * Helper: Calculate data age
+ */
+function calculateAge(dateString) {
+  if (!dateString) return "Unknown";
+  try {
+    const date = new Date(dateString);
+    const now = new Date();
+    const hours = Math.round((now - date) / (1000 * 60 * 60));
+
+    if (hours < 1) return "< 1 hour";
+    if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'}`;
+    const days = Math.round(hours / 24);
+    return `${days} day${days === 1 ? '' : 's'}`;
+  } catch {
+    return "Unknown";
+  }
+}
+
+/**
+ * Helper: Update last update timestamp
+ */
+function updateTimestamp() {
+  const element = document.getElementById("last-update");
+  if (element && state.lastUpdate) {
+    const time = state.lastUpdate.toLocaleTimeString('en-US');
+    element.textContent = `Last updated: ${time} UTC`;
+  }
+}
+
+/**
+ * Helper: Handle API errors
+ */
+function handleError(error) {
+  console.error(error.message);
+  const statusBadge = document.getElementById("status-badge");
+  if (statusBadge) {
+    statusBadge.className = "status-badge critical";
+    statusBadge.textContent = "● Error";
+  }
+}
+
+/**
+ * Update selection toolbar visibility
+ */
+function updateSelectionToolbar() {
+  const toolbar = document.getElementById("selection-toolbar");
+  const count = document.getElementById("selection-count");
+
+  if (toolbar) {
+    if (selectedSymbols.size > 0) {
+      toolbar.style.display = "flex";
+      if (count) count.textContent = `${selectedSymbols.size} symbol${selectedSymbols.size === 1 ? '' : 's'} selected`;
+    } else {
+      toolbar.style.display = "none";
+    }
+  }
+}
+
+/**
+ * Clear all selections
+ */
+function clearSelection() {
+  selectedSymbols.clear();
+  persistSelectedSymbols();
+  document.querySelectorAll(".symbol-table input[type='checkbox']").forEach(cb => {
+    cb.checked = false;
+  });
+  updateSelectionToolbar();
+}
+
+/**
+ * Setup symbol table click handlers for selection
+ */
+function setupSymbolTableClickHandlers() {
+  document.addEventListener('change', (e) => {
+    if (e.target.closest('.symbol-table tbody input[type="checkbox"]')) {
+      const symbol = e.target.getAttribute('data-symbol');
+      if (symbol) {
+        if (e.target.checked) {
+          selectedSymbols.add(symbol);
+        } else {
+          selectedSymbols.delete(symbol);
+        }
+        persistSelectedSymbols();
+        updateSelectionToolbar();
+      }
+    }
+  });
+}
+
+/**
+ * Toggle select all checkboxes
+ */
+function toggleSelectAll(checkbox) {
+  const allCheckboxes = document.querySelectorAll('.symbol-table tbody input[type="checkbox"]');
+  allCheckboxes.forEach(cb => {
+    cb.checked = checkbox.checked;
+    const symbol = cb.getAttribute('data-symbol');
+    if (symbol) {
+      if (checkbox.checked) {
+        selectedSymbols.add(symbol);
+      } else {
+        selectedSymbols.delete(symbol);
+      }
+    }
+  });
+  persistSelectedSymbols();
+  updateSelectionToolbar();
+}
+
+/**
+ * Setup search and filter for symbol table
+ */
+function setupSymbolSearch() {
+  const searchBox = document.getElementById("symbol-search");
+  const statusFilter = document.getElementById("status-filter");
+
+  if (!searchBox || !statusFilter) return;
+
+  const updateTable = () => {
+    const searchTerm = searchBox.value.toLowerCase();
+    const statusValue = statusFilter.value;
+
+    const rows = document.querySelectorAll(".symbol-table tbody tr");
+    let visibleCount = 0;
+
+    rows.forEach(row => {
+      const symbol = row.querySelector("td:nth-child(2)")?.textContent || "";
+      const status = row.getAttribute("data-status") || "";
+
+      const matchesSearch = symbol.toLowerCase().includes(searchTerm);
+      const matchesStatus = !statusValue || status.toLowerCase() === statusValue.toLowerCase();
+
+      if (matchesSearch && matchesStatus) {
+        row.style.display = "";
+        visibleCount++;
+      } else {
+        row.style.display = "none";
+      }
+    });
+  };
+
+  searchBox.addEventListener("input", updateTable);
+  statusFilter.addEventListener("change", updateTable);
+}
+
+/**
+ * Sort symbol table by column
+ */
+function sortTable(column) {
+  const direction =
+    symbolTableState.currentSort.column === column &&
+    symbolTableState.currentSort.direction === "asc"
+      ? "desc"
+      : "asc";
+
+  symbolTableState.currentSort = { column, direction };
+  updateSortIndicators();
+  renderSymbolTable();
+}
+
+/**
+ * Render symbol table from cached data
+ */
+function renderSymbolTable() {
+  const container = document.getElementById("symbol-tbody");
+  let symbols = [...symbolTableState.allSymbols];
+
+  // Apply filters
+  const searchTerm = document.getElementById("symbol-search")?.value.toLowerCase() || "";
+  const statusFilter = document.getElementById("status-filter")?.value || "";
+
+  symbols = symbols.filter(sym => {
+    const matchesSearch = sym.symbol.toLowerCase().includes(searchTerm);
+    const matchesStatus = !statusFilter || sym.status === statusFilter;
+    return matchesSearch && matchesStatus;
+  });
+
+  // Sort
+  symbols.sort((a, b) => {
+    let aVal = a[symbolTableState.currentSort.column];
+    let bVal = b[symbolTableState.currentSort.column];
+
+    if (typeof aVal === 'string') aVal = aVal.toLowerCase();
+    if (typeof bVal === 'string') bVal = bVal.toLowerCase();
+
+    const comparison = aVal < bVal ? -1 : aVal > bVal ? 1 : 0;
+    return symbolTableState.currentSort.direction === "asc" ? comparison : -comparison;
+  });
+
+  // Render rows
+  if (symbols.length === 0) {
+    container.innerHTML = `
+      <tr>
+        <td colspan="8" style="text-align: center; padding: 40px; color: var(--text-secondary);">
+          No symbols found
+        </td>
+      </tr>
+    `;
+  } else {
+    container.innerHTML = symbols.map(sym => `
+      <tr data-status="${sym.status}">
+        <td>
+          <input
+            type="checkbox"
+            data-symbol="${sym.symbol}"
+            ${selectedSymbols.has(sym.symbol) ? 'checked' : ''}
+          >
+        </td>
+        <td onclick="openAssetModal('${sym.symbol}')" style="cursor: pointer; color: var(--accent);">
+          ${escapeHtml(sym.symbol)}
+        </td>
+        <td>${formatNumber(sym.records)}</td>
+        <td>${(sym.validation_rate || 0).toFixed(1)}%</td>
+        <td>${formatDate(sym.latest_data) || '---'}</td>
+        <td>${calculateAge(sym.latest_data)}</td>
+        <td>${(sym.timeframes || []).join(', ')}</td>
+        <td>
+          <span class="status-badge ${sym.status}">
+            ${sym.status === 'healthy' ? '✓' : sym.status === 'warning' ? '⚠' : '✗'} ${sym.status}
+          </span>
+        </td>
+      </tr>
+    `).join("");
+  }
+
+  updateSymbolCount(symbols.length, symbolTableState.allSymbols.length);
+}
+
+/**
+ * Update symbol count display
+ */
+function updateSymbolCount(displayed, total) {
+  const element = document.getElementById("symbol-count");
+  if (element) {
+    if (displayed === total) {
+      element.textContent = `${total} symbol${total === 1 ? '' : 's'}`;
+    } else {
+      element.textContent = `Showing ${displayed} of ${total} symbols`;
+    }
+  }
+}
+
+/**
+ * Switch asset modal tab
+ */
+function switchAssetTab(tabName) {
+  // Hide all tabs
+  document.querySelectorAll(".asset-tab-content").forEach(tab => {
+    tab.style.display = "none";
+  });
+
+  // Deactivate all buttons
+  document.querySelectorAll(".asset-tab-btn").forEach(btn => {
+    btn.classList.remove("active");
+    btn.setAttribute("aria-selected", "false");
+  });
+
+  // Show selected tab
+  const tab = document.getElementById(`tab-${tabName}`);
+  if (tab) {
+    tab.style.display = "block";
+    const btn = document.querySelector(`[onclick="switchAssetTab('${tabName}')"]`);
+    if (btn) {
+      btn.classList.add("active");
+      btn.setAttribute("aria-selected", "true");
+    }
+  }
+}
+
+/**
+ * Open asset modal
+ */
+function openAssetModal(symbol) {
+  currentSymbol = symbol;
+  const modal = document.getElementById("asset-modal");
+  const titleEl = document.getElementById("modal-symbol");
+
+  if (titleEl) titleEl.textContent = symbol;
+  if (modal) modal.style.display = "flex";
+
+  loadAssetDetails(symbol);
+}
+
+/**
+ * Close asset modal
+ */
+function closeAssetModal() {
+  const modal = document.getElementById("asset-modal");
+  if (modal) modal.style.display = "none";
+  currentSymbol = null;
+}
+
+/**
+ * Load asset details
+ */
+async function loadAssetDetails(symbol) {
+  try {
+    // Check cache
+    const now = Date.now();
+    if (assetCache.has(symbol)) {
+      const cached = assetCache.get(symbol);
+      if (now - cached.timestamp < CACHE_TTL) {
+        renderAssetDetails(cached.data);
+        return;
+      }
+    }
+
+    const response = await fetch(`${CONFIG.API_BASE}/api/v1/symbols/${symbol}/details`);
+    if (!response.ok) throw new Error(`Failed to load details (${response.status})`);
+
+    const data = await response.json();
+    assetCache.set(symbol, { data, timestamp: now });
+    renderAssetDetails(data);
+
+  } catch (error) {
+    console.error("Error loading asset details:", error);
+    const gridEl = document.getElementById("overview-grid");
+    if (gridEl) gridEl.innerHTML = `<p style="color: red;">Error loading details: ${error.message}</p>`;
+  }
+}
+
+/**
+ * Render asset overview
+ */
+function renderAssetDetails(data) {
+  const gridEl = document.getElementById("overview-grid");
+  if (!gridEl) return;
+
+  const html = `
+    <div class="overview-item">
+      <span class="overview-label">Asset Class</span>
+      <span class="overview-value">${escapeHtml(data.asset_class || '---')}</span>
+    </div>
+    <div class="overview-item">
+      <span class="overview-label">Total Records</span>
+      <span class="overview-value">${formatNumber(data.total_records || 0)}</span>
+    </div>
+    <div class="overview-item">
+      <span class="overview-label">Latest Data</span>
+      <span class="overview-value">${formatDate(data.latest_data) || '---'}</span>
+    </div>
+    <div class="overview-item">
+      <span class="overview-label">Validation Rate</span>
+      <span class="overview-value">${(data.validation_rate || 0).toFixed(1)}%</span>
+    </div>
+  `;
+
+  gridEl.innerHTML = html;
+
+  // Load timeframes
+  loadTimeframeDetails(data.symbol);
+}
+
+/**
+ * Load timeframe details for asset
+ */
+async function loadTimeframeDetails(symbol) {
+  try {
+    const response = await fetch(`${CONFIG.API_BASE}/api/v1/symbols/${symbol}/timeframes`);
+    if (!response.ok) return;
+
+    const data = await response.json();
+    const tbody = document.getElementById("timeframes-tbody");
+    if (!tbody) return;
+
+    tbody.innerHTML = (data.timeframes || []).map(tf => `
+      <tr>
+        <td>${escapeHtml(tf.timeframe)}</td>
+        <td>${formatNumber(tf.records)}</td>
+        <td>${formatDate(tf.latest) || '---'}</td>
+        <td><span class="status-badge ${tf.status}">${tf.status}</span></td>
+      </tr>
+    `).join("");
+
+  } catch (error) {
+    console.warn("Could not load timeframe details:", error);
+  }
+}
+
+/**
+ * Load and display candle data
+ */
+async function loadCandleData(symbol, timeframe) {
+  try {
+    const response = await fetch(`${CONFIG.API_BASE}/api/v1/symbols/${symbol}/candles/${timeframe}?limit=100`);
+    if (!response.ok) throw new Error(`Failed to load candles (${response.status})`);
+
+    const data = await response.json();
+    const tbody = document.getElementById("candles-tbody");
+    if (!tbody) return;
+
+    const candles = data.candles || [];
+    document.getElementById("candle-count").textContent = `${candles.length} candles`;
+
+    tbody.innerHTML = candles.map(c => `
+      <tr>
+        <td>${formatDate(c.time)}</td>
+        <td>${c.open?.toFixed(2) || '---'}</td>
+        <td>${c.high?.toFixed(2) || '---'}</td>
+        <td>${c.low?.toFixed(2) || '---'}</td>
+        <td>${c.close?.toFixed(2) || '---'}</td>
+        <td>${formatNumber(c.volume)}</td>
+        <td>${c.vwap?.toFixed(2) || '---'}</td>
+        <td><span class="status-badge ${c.quality_score >= 0.95 ? 'healthy' : 'warning'}">
+          ${(c.quality_score * 100).toFixed(0)}%
+        </span></td>
+      </tr>
+    `).join("");
+
+  } catch (error) {
+    console.error("Error loading candles:", error);
+    const tbody = document.getElementById("candles-tbody");
+    if (tbody) tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: red;">${escapeHtml(error.message)}</td></tr>`;
+  }
+}
+
+/**
+ * Load more candles
+ */
+async function loadMoreCandles(symbol) {
+  const timeframe = document.getElementById("candle-timeframe")?.value || "1h";
+  await loadCandleData(symbol, timeframe);
+}
+
+/**
+ * View API docs
+ */
+function viewDocs() {
+  window.open(`${CONFIG.API_BASE}/docs`, "_blank");
+}
+
+/**
+ * Run tests
+ */
+async function runAllTests() {
+  const container = document.getElementById("test-container");
+  if (!container) return;
+
+  container.style.display = "block";
+  document.getElementById("test-status").textContent = "Running tests...";
+  document.getElementById("test-summary").textContent = "";
+  document.getElementById("test-output").textContent = "";
+
+  try {
+    const response = await fetch(`${CONFIG.API_BASE}/api/v1/admin/tests`, { method: "POST" });
+    if (!response.ok) throw new Error(`Test endpoint returned ${response.status}`);
+
+    const data = await response.json();
+    document.getElementById("test-status").textContent = `Tests completed: ${data.passed} passed, ${data.failed} failed`;
+    document.getElementById("test-summary").textContent = data.summary || "";
+    document.getElementById("test-output").textContent = data.output?.join("\n") || "";
+
+  } catch (error) {
+    document.getElementById("test-status").textContent = `Error: ${escapeHtml(error.message)}`;
+  }
 }

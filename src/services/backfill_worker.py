@@ -20,6 +20,13 @@ class BackfillWorker:
                          start_date: str, end_date: str, 
                          timeframes: List[str]):
         """Process a backfill job asynchronously."""
+        import uuid
+        # Ensure job_id is a valid UUID
+        if isinstance(job_id, str):
+            job_id_uuid = uuid.UUID(job_id)
+        else:
+            job_id_uuid = job_id
+        
         session = self.db.SessionLocal()
         try:
             # Mark job as running
@@ -27,7 +34,7 @@ class BackfillWorker:
                 UPDATE backfill_jobs 
                 SET status = 'running', started_at = NOW()
                 WHERE id = :job_id
-            """), {"job_id": job_id})
+            """), {"job_id": job_id_uuid})
             session.commit()
             
             logger.info(f"Starting backfill job {job_id}")
@@ -46,7 +53,7 @@ class BackfillWorker:
                             SET current_symbol = :symbol, current_timeframe = :timeframe
                             WHERE id = :job_id
                         """), {
-                            "job_id": job_id,
+                            "job_id": job_id_uuid,
                             "symbol": symbol,
                             "timeframe": timeframe
                         })
@@ -59,18 +66,18 @@ class BackfillWorker:
                             ON CONFLICT (job_id, symbol, timeframe) DO UPDATE SET 
                                 status = 'running', started_at = NOW()
                         """), {
-                            "job_id": job_id,
+                            "job_id": job_id_uuid,
                             "symbol": symbol,
                             "timeframe": timeframe
                         })
                         session.commit()
                         
                         # Fetch OHLCV data from Polygon
-                        candles = await self.polygon.fetch_candles(
+                        candles = await self.polygon.fetch_range(
                             symbol=symbol,
                             timeframe=timeframe,
-                            start_date=start_date,
-                            end_date=end_date
+                            start=start_date,
+                            end=end_date
                         )
                         
                         records_fetched = len(candles)
@@ -92,7 +99,7 @@ class BackfillWorker:
                                 duration_seconds = EXTRACT(EPOCH FROM (NOW() - started_at))::INTEGER
                             WHERE job_id = :job_id AND symbol = :symbol AND timeframe = :timeframe
                         """), {
-                            "job_id": job_id,
+                            "job_id": job_id_uuid,
                             "symbol": symbol,
                             "timeframe": timeframe,
                             "records_fetched": records_fetched,
@@ -106,7 +113,7 @@ class BackfillWorker:
                                 total_records_inserted = total_records_inserted + :records_inserted
                             WHERE id = :job_id
                         """), {
-                            "job_id": job_id,
+                            "job_id": job_id_uuid,
                             "records_fetched": records_fetched,
                             "records_inserted": records_inserted
                         })
@@ -115,7 +122,7 @@ class BackfillWorker:
                         logger.info(f"Completed {symbol} {timeframe}: {records_inserted} records")
                         
                     except Exception as e:
-                        logger.error(f"Error processing {symbol} {timeframe}: {e}")
+                        logger.error(f"Error processing {symbol} {timeframe}: {e}", exc_info=True)
                         
                         # Mark as failed
                         session.execute(text("""
@@ -126,7 +133,7 @@ class BackfillWorker:
                                 duration_seconds = EXTRACT(EPOCH FROM (NOW() - started_at))::INTEGER
                             WHERE job_id = :job_id AND symbol = :symbol AND timeframe = :timeframe
                         """), {
-                            "job_id": job_id,
+                            "job_id": job_id_uuid,
                             "symbol": symbol,
                             "timeframe": timeframe,
                             "error": str(e)
@@ -142,7 +149,7 @@ class BackfillWorker:
                             SET progress_pct = :progress_pct
                             WHERE id = :job_id
                         """), {
-                            "job_id": job_id,
+                            "job_id": job_id_uuid,
                             "progress_pct": progress_pct
                         })
                         session.commit()
@@ -152,7 +159,7 @@ class BackfillWorker:
                 UPDATE backfill_jobs 
                 SET status = 'completed', completed_at = NOW(), progress_pct = 100
                 WHERE id = :job_id
-            """), {"job_id": job_id})
+            """), {"job_id": job_id_uuid})
             session.commit()
             
             logger.info(f"Backfill job {job_id} completed successfully")
@@ -164,7 +171,7 @@ class BackfillWorker:
                 SET status = 'failed', error_message = :error, completed_at = NOW()
                 WHERE id = :job_id
             """), {
-                "job_id": job_id,
+                "job_id": job_id_uuid,
                 "error": str(e)
             })
             session.commit()
@@ -188,8 +195,15 @@ def enqueue_backfill_job(job_id: str, symbols: List[str],
                         start_date: str, end_date: str, 
                         timeframes: List[str]):
     """Enqueue a backfill job for processing in background."""
+    global _backfill_worker
+    
     if not _backfill_worker:
-        raise RuntimeError("Backfill worker not initialized")
+        raise RuntimeError(
+            "Backfill worker not initialized. "
+            "The worker should be initialized during app startup via init_backfill_worker(). "
+            "If running with multiple workers (uvicorn --workers > 1), "
+            "each worker process needs its own initialization."
+        )
     
     # Schedule as a background task (non-blocking)
     asyncio.create_task(

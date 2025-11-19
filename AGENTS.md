@@ -1,5 +1,52 @@
 # Agent Guidelines
 
+## Multi-Source Data Strategy
+
+**Two new sources (fallback):**
+- Primary: Polygon.io (existing, paid)
+- Fallback 1: Yahoo Finance (free, reliable for daily data)
+- Fallback 2: Alpha Vantage (future, archival)
+
+**Usage:**
+- Triggered on Polygon timeout, rate limit, or poor data quality
+- Data tagged with source for audit
+- Quality-aware fallback (validates and compares)
+
+**Files:**
+- `MULTI_SOURCE_STRATEGY.md` - Design & architecture
+- `MULTI_SOURCE_INTEGRATION.md` - Implementation guide
+- `src/clients/yahoo_client.py` - Yahoo Finance client
+- `src/clients/multi_source_client.py` - Orchestrator with fallback logic
+
+**Integration:**
+```python
+# Drop-in replacement for PolygonClient
+from src.clients.multi_source_client import MultiSourceClient
+
+client = MultiSourceClient(polygon_api_key, enable_fallback=True)
+candles, source = await client.fetch_range(symbol, timeframe, start, end)
+# Returns: candles list, source ('polygon', 'yahoo', or None)
+```
+
+## Database Setup
+
+```bash
+# Initialize database with default trading symbols (60: 20 stocks + 20 crypto + 20 ETFs)
+python scripts/init_symbols.py
+
+# Initialize only first 10 symbols
+python scripts/init_symbols.py --count 10
+
+# Initialize only stocks and ETFs (exclude crypto)
+python scripts/init_symbols.py --exclude-asset-type crypto
+
+# Check which symbols exist without modifying database
+python scripts/init_symbols.py --check-only
+
+# Clear and reinitialize all symbols
+python scripts/init_symbols.py --reset
+```
+
 ## Build & Test Commands
 
 ```bash
@@ -85,6 +132,15 @@ python scripts/backfill_ohlcv.py --start 2024-01-01 --end 2024-01-31  # Date ran
 
 # Corporate events enrichment (dividends, earnings, splits)
 python backfill_enrichment_data.py                  # Backfill all corporate events
+
+# Data validation & repair: Re-validate unvalidated records (sets quality_score, validated flag)
+python repair_unvalidated_data.py                   # All unvalidated records
+python repair_unvalidated_data.py --dry-run         # Preview changes without updating DB
+python repair_unvalidated_data.py --symbols AAPL    # Specific symbols only
+python repair_unvalidated_data.py --timeframes 1d   # Specific timeframes only
+python repair_unvalidated_data.py --limit 5000      # First N records only
+python repair_unvalidated_data.py --batch-size 500  # Tuning: larger batch = faster but more memory
+python repair_unvalidated_data.py --output report.json  # Save detailed report
 ```
 
 ## Architecture

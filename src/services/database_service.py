@@ -103,7 +103,7 @@ class DatabaseService:
             if values:
                 insert_query = text("""
                     INSERT INTO market_data 
-                    (datetime, symbol, open, high, low, close, volume, 
+                    (time, symbol, open, high, low, close, volume, 
                      validated, quality_score, validation_notes, gap_detected, 
                      volume_anomaly, source, fetched_at, timeframe)
                     VALUES 
@@ -182,14 +182,14 @@ class DatabaseService:
             if values:
                 insert_query = text("""
                     INSERT INTO market_data 
-                    (datetime, symbol, open, high, low, close, volume, 
+                    (time, symbol, open, high, low, close, volume, 
                      validated, quality_score, validation_notes, gap_detected, 
                      volume_anomaly, source, fetched_at, timeframe)
                     VALUES 
                     (:time, :symbol, :open, :high, :low, :close, :volume,
                      :validated, :quality_score, :validation_notes, :gap_detected,
                      :volume_anomaly, :source, :fetched_at, :timeframe)
-                    ON CONFLICT (datetime, symbol, timeframe) DO NOTHING
+                    ON CONFLICT (time, symbol, timeframe) DO NOTHING
                 """)
                 for value_set in values:
                     try:
@@ -2124,6 +2124,13 @@ class DatabaseService:
         """Create a new backfill job record."""
         session = self.SessionLocal()
         try:
+            import uuid
+            # Ensure job_id is a valid UUID
+            if isinstance(job_id, str):
+                job_id_uuid = uuid.UUID(job_id)
+            else:
+                job_id_uuid = job_id
+            
             session.execute(
                 text("""
                     INSERT INTO backfill_jobs 
@@ -2131,7 +2138,7 @@ class DatabaseService:
                     VALUES (:job_id, :symbols, :start_date, :end_date, :timeframes, 'queued', :symbols_total)
                 """),
                 {
-                    "job_id": job_id,
+                    "job_id": job_id_uuid,
                     "symbols": symbols,
                     "start_date": start_date,
                     "end_date": end_date,
@@ -2153,6 +2160,15 @@ class DatabaseService:
         """Get current status of a backfill job."""
         session = self.SessionLocal()
         try:
+            import uuid
+            # Ensure job_id is a valid UUID
+            if isinstance(job_id, str):
+                job_id_uuid = uuid.UUID(job_id)
+            else:
+                job_id_uuid = job_id
+            
+            logger.info(f"Fetching backfill job status for {job_id} (UUID: {job_id_uuid})")
+            
             job = session.execute(
                 text("""
                     SELECT id, status, progress_pct, symbols_completed, symbols_total,
@@ -2162,8 +2178,10 @@ class DatabaseService:
                     FROM backfill_jobs
                     WHERE id = :job_id
                 """),
-                {"job_id": job_id}
+                {"job_id": job_id_uuid}
             ).fetchone()
+            
+            logger.info(f"Query returned: {job}")
             
             if not job:
                 return {"error": "Job not found"}
@@ -2176,7 +2194,7 @@ class DatabaseService:
                     WHERE job_id = :job_id
                     ORDER BY created_at DESC
                 """),
-                {"job_id": job_id}
+                {"job_id": job_id_uuid}
             ).fetchall()
             
             details = [

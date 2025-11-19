@@ -39,7 +39,6 @@ services:
       API_PORT: 8000
       API_WORKERS: 4
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      BACKFILL_SCHEDULE_HOUR: 2
       BACKFILL_SCHEDULE_MINUTE: 0
     ports:
       - "8000:8000"

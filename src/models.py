@@ -186,6 +186,44 @@ class UpdateAPIKeyRequest(BaseModel):
     active: bool = Field(..., description="Whether the key should be active")
 
 
+class BackfillRequest(BaseModel):
+    """Request to submit a backfill job"""
+    symbols: List[str] = Field(..., min_items=1, max_items=100, description="List of symbols to backfill")
+    start_date: str = Field(..., description="Start date in YYYY-MM-DD format")
+    end_date: str = Field(..., description="End date in YYYY-MM-DD format")
+    timeframes: List[str] = Field(default=["1d"], description="List of timeframes to backfill")
+    
+    @validator('symbols')
+    def validate_symbols(cls, v):
+        """Validate symbols list"""
+        if not v or len(v) == 0:
+            raise ValueError("At least one symbol required")
+        if len(v) > 100:
+            raise ValueError("Maximum 100 symbols per request")
+        return v
+    
+    @validator('start_date', 'end_date')
+    def validate_date_format(cls, v):
+        """Validate date format"""
+        from datetime import datetime as dt
+        try:
+            dt.strptime(v, '%Y-%m-%d')
+        except ValueError:
+            raise ValueError("Invalid date format. Use YYYY-MM-DD")
+        return v
+    
+    @validator('end_date')
+    def validate_date_range(cls, v, values):
+        """Validate start_date < end_date"""
+        if 'start_date' in values:
+            from datetime import datetime as dt
+            start = dt.strptime(values['start_date'], '%Y-%m-%d')
+            end = dt.strptime(v, '%Y-%m-%d')
+            if start >= end:
+                raise ValueError("Start date must be before end date")
+        return v
+
+
 class BackfillJobDetail(BaseModel):
     """Details of a single symbol-timeframe backfill"""
     symbol: str

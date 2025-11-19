@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List
 import uuid
 
-from fastapi import FastAPI, HTTPException, Query, Response
+from fastapi import FastAPI, HTTPException, Query, Response, Body
 from fastapi.responses import JSONResponse, FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -27,7 +27,8 @@ from src.routes.asset_data import router as asset_router
 from src.models import (
     HealthResponse, StatusResponse, AddSymbolRequest, TrackedSymbol,
     APIKeyListResponse, APIKeyCreateResponse, AuditLogEntry, APIKeyAuditResponse,
-    CreateAPIKeyRequest, UpdateAPIKeyRequest, UpdateSymbolTimeframesRequest
+    CreateAPIKeyRequest, UpdateAPIKeyRequest, UpdateSymbolTimeframesRequest,
+    BackfillRequest
 )
 from src.services.structured_logging import setup_structured_logging, StructuredLogger, get_trace_id
 from src.services.metrics import init_metrics, get_metrics_collector
@@ -38,6 +39,7 @@ from src.services.caching import init_query_cache, get_query_cache
 from src.services.performance_monitor import init_performance_monitor, get_performance_monitor
 from src.services.auth import init_auth_service, get_auth_service
 from src.services.symbol_manager import init_symbol_manager, get_symbol_manager
+from src.services.migrations import run_migrations
 from src.services.backfill_worker import init_backfill_worker
 
 # Setup structured logging
@@ -73,10 +75,17 @@ async def lifespan(app: FastAPI):
         "alerting": True,
     })
     logger.info("Scheduler configured", extra={
-        "schedule": f"{config.backfill_schedule_hour:02d}:{config.backfill_schedule_minute:02d} UTC daily"
+        "schedule": f"Every hour at :{config.backfill_schedule_minute:02d} UTC"
     })
     
     # Test database connection
+    # Run database migrations
+    try:
+        run_migrations(config.database_url)
+        logger.info("Migrations completed")
+    except Exception as e:
+        logger.error("Migration failed", extra={"error": str(e)})
+
     try:
         metrics = db.get_status_metrics()
         logger.info("Database connected", extra={
@@ -95,10 +104,15 @@ async def lifespan(app: FastAPI):
     
     # Initialize Backfill Worker
     try:
-        init_backfill_worker(db, scheduler.polygon_api)
-        logger.info("Backfill worker initialized")
+        if not scheduler.polygon_client:
+            logger.warning("Polygon API not available, backfill worker will not initialize")
+        else:
+            init_backfill_worker(db, scheduler.polygon_client)
+            app.state.backfill_worker_initialized = True
+            logger.info("Backfill worker initialized successfully")
     except Exception as e:
-        logger.error("Failed to initialize backfill worker", extra={"error": str(e)})
+        app.state.backfill_worker_initialized = False
+        logger.error("Failed to initialize backfill worker", extra={"error": str(e), "type": type(e).__name__}, exc_info=True)
     
     logger.info("App startup complete")
     yield
@@ -223,6 +237,15 @@ async def root():
             "metrics": "/api/v1/metrics",
         }
     })
+
+
+@app.get("/favicon.ico")
+async def get_favicon():
+    """Serve favicon.ico - returns empty response to prevent 405 errors"""
+    return JSONResponse(
+        content={},
+        status_code=204  # No Content - browser won't try to display
+    )
 
 
 @app.options("/{full_path:path}")
@@ -1734,6 +1757,448 @@ async def get_enrichment_metrics():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/v1/enrichment/dashboard/overview")
+async def enrichment_dashboard_overview():
+    """
+    Get enrichment scheduler overview and current operational status.
+    
+    Returns:
+        {
+            "scheduler_status": "running|stopped",
+            "last_run": "2024-11-19T10:30:00Z",
+            "next_run": "2024-11-19T11:00:00Z",
+            "success_rate": 98.5,
+            "symbols_enriched": 45,
+            "total_symbols": 60,
+            "avg_enrichment_time_seconds": 12.3,
+            "recent_errors": 1
+        }
+    """
+    try:
+        session = db.SessionLocal()
+        try:
+            from sqlalchemy import text, func
+            
+            # Get scheduler state
+            is_running = scheduler.scheduler.running if hasattr(scheduler, 'scheduler') else False
+            
+            last_run = None
+            total_runs = 0
+            successful = 0
+            avg_time = 0
+            enriched = 0
+            total_symbols = 60
+            
+            # Try enrichment_fetch_log
+            try:
+                last_run_stats = session.execute(
+                    text("""
+                        SELECT MAX(created_at) as last_run,
+                               COUNT(*) as total_runs,
+                               SUM(CASE WHEN success THEN 1 ELSE 0 END) as successful,
+                               AVG(source_response_time_ms) as avg_time_ms
+                        FROM enrichment_fetch_log
+                        WHERE created_at > NOW() - INTERVAL '24 hours'
+                    """)
+                ).first()
+                
+                last_run = last_run_stats[0] if last_run_stats and last_run_stats[0] else None
+                total_runs = last_run_stats[1] if last_run_stats else 0
+                successful = last_run_stats[2] if last_run_stats else 0
+                avg_time = last_run_stats[3] if last_run_stats else 0
+            except:
+                pass  # Table doesn't exist, use defaults
+            
+            # Try enrichment_status
+            try:
+                symbol_stats = session.execute(
+                    text("""
+                        SELECT COUNT(DISTINCT symbol) as enriched_count,
+                               COUNT(DISTINCT CASE WHEN status = 'healthy' THEN symbol END) as healthy_count
+                        FROM enrichment_status
+                    """)
+                ).first()
+                enriched = symbol_stats[1] if symbol_stats else 0
+            except:
+                pass  # Table doesn't exist, use defaults
+            
+            # Try market_data
+            try:
+                total_symbols = session.execute(
+                    text("SELECT COUNT(DISTINCT symbol) FROM market_data")
+                ).scalar() or 60
+            except:
+                total_symbols = 60  # Default
+            
+            # Calculate next run (every hour)
+            next_run = None
+            if last_run:
+                next_run = (last_run + timedelta(hours=1)).isoformat()
+            
+            success_rate = (successful / total_runs * 100) if total_runs > 0 else 0
+            
+            return {
+                "scheduler_status": "running" if is_running else "stopped",
+                "last_run": last_run.isoformat() if last_run else None,
+                "next_run": next_run,
+                "success_rate": round(success_rate, 1),
+                "symbols_enriched": enriched,
+                "total_symbols": total_symbols,
+                "avg_enrichment_time_seconds": round(avg_time / 1000, 2) if avg_time else 0,
+                "recent_errors": total_runs - successful if total_runs > 0 else 0,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        finally:
+            session.close()
+    
+    except Exception as e:
+        logger.error(f"Error getting enrichment overview: {e}", extra={'error': str(e)})
+        # Return safe defaults instead of 500 error
+        return {
+            "scheduler_status": "unknown",
+            "last_run": None,
+            "next_run": None,
+            "success_rate": 0,
+            "symbols_enriched": 0,
+            "total_symbols": 60,
+            "avg_enrichment_time_seconds": 0,
+            "recent_errors": 0,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+
+
+@app.get("/api/v1/enrichment/dashboard/metrics")
+async def enrichment_dashboard_metrics():
+    """
+    Get comprehensive pipeline and quality metrics for monitoring dashboard.
+    
+    Returns:
+        {
+            "fetch_pipeline": {...},
+            "compute_pipeline": {...},
+            "data_quality": {...},
+            "symbol_health": {...},
+            "last_24h": {...}
+        }
+    """
+    try:
+        session = db.SessionLocal()
+        try:
+            from sqlalchemy import text, func
+            
+            # Initialize defaults
+            fetch_total = 0
+            fetch_successful = 0
+            fetch_avg_time = 0
+            fetch_records = 0
+            
+            compute_total = 0
+            compute_successful = 0
+            compute_avg_time = 0
+            compute_features = 0
+            
+            quality_validation = 0
+            quality_score = 0
+            quality_completeness = 0
+            
+            health_dict = {}
+            
+            # Fetch pipeline stats (last 24 hours)
+            try:
+                fetch_stats = session.execute(
+                    text("""
+                        SELECT COUNT(*) as total_jobs,
+                               SUM(CASE WHEN success THEN 1 ELSE 0 END) as successful,
+                               AVG(source_response_time_ms) as avg_duration_seconds,
+                               SUM(records_fetched) as total_records_fetched
+                        FROM enrichment_fetch_log
+                        WHERE created_at > NOW() - INTERVAL '24 hours'
+                    """)
+                ).first()
+                
+                if fetch_stats:
+                    fetch_total = fetch_stats[0] or 0
+                    fetch_successful = fetch_stats[1] or 0
+                    fetch_avg_time = fetch_stats[2] or 0
+                    fetch_records = fetch_stats[3] or 0
+            except:
+                pass  # Table doesn't exist, use defaults
+            
+            # Compute pipeline stats
+            try:
+                compute_stats = session.execute(
+                    text("""
+                        SELECT COUNT(*) as total_computations,
+                               SUM(CASE WHEN success THEN 1 ELSE 0 END) as successful,
+                               AVG(computation_time_ms) as avg_time_ms,
+                               SUM(features_computed) as total_features
+                        FROM enrichment_compute_log
+                        WHERE created_at > NOW() - INTERVAL '24 hours'
+                    """)
+                ).first()
+                
+                if compute_stats:
+                    compute_total = compute_stats[0] or 0
+                    compute_successful = compute_stats[1] or 0
+                    compute_avg_time = compute_stats[2] or 0
+                    compute_features = compute_stats[3] or 0
+            except:
+                pass  # Table doesn't exist, use defaults
+            
+            # Data quality metrics
+            try:
+                quality_stats = session.execute(
+                    text("""
+                        SELECT AVG(validation_rate) as avg_validation,
+                               AVG(avg_quality_score) as avg_score,
+                               AVG(data_completeness) as avg_completeness
+                        FROM data_quality_metrics
+                        WHERE metric_date > CURRENT_DATE - INTERVAL '7 days'
+                    """)
+                ).first()
+                
+                if quality_stats:
+                    quality_validation = quality_stats[0] or 0
+                    quality_score = quality_stats[1] or 0
+                    quality_completeness = quality_stats[2] or 0
+            except:
+                pass  # Table doesn't exist, use defaults
+            
+            # Symbol health breakdown
+            try:
+                health_stats = session.execute(
+                    text("""
+                        SELECT status,
+                               COUNT(*) as count
+                        FROM enrichment_status
+                        GROUP BY status
+                    """)
+                ).all()
+                
+                health_dict = {row[0]: row[1] for row in health_stats} if health_stats else {}
+            except:
+                pass  # Table doesn't exist, use defaults
+            
+            # Calculate rates
+            fetch_success_rate = (fetch_successful / fetch_total * 100) if fetch_total > 0 else 0
+            compute_success_rate = (compute_successful / compute_total * 100) if compute_total > 0 else 0
+            
+            return {
+                "fetch_pipeline": {
+                    "total_jobs": fetch_total,
+                    "success_rate": round(fetch_success_rate, 1),
+                    "avg_job_duration_seconds": round((fetch_avg_time / 1000) if fetch_avg_time else 0, 2),
+                    "total_records_fetched": fetch_records
+                },
+                "compute_pipeline": {
+                    "total_computations": compute_total,
+                    "success_rate": round(compute_success_rate, 1),
+                    "avg_computation_time_ms": round(compute_avg_time) if compute_avg_time else 0,
+                    "total_features_computed": compute_features
+                },
+                "data_quality": {
+                    "avg_validation_rate": round(quality_validation, 1) if quality_validation else 0,
+                    "avg_quality_score": round(quality_score, 2) if quality_score else 0,
+                    "avg_data_completeness": round(quality_completeness, 1) if quality_completeness else 0
+                },
+                "symbol_health": {
+                    "healthy": health_dict.get("healthy", 0),
+                    "warning": health_dict.get("warning", 0),
+                    "stale": health_dict.get("stale", 0),
+                    "error": health_dict.get("error", 0),
+                    "total": sum(health_dict.values())
+                },
+                "last_24h": {
+                    "records_fetched": fetch_records,
+                    "features_computed": compute_features
+                },
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        finally:
+            session.close()
+    
+    except Exception as e:
+        logger.error(f"Error getting enrichment dashboard metrics: {e}", extra={'error': str(e)})
+        # Return safe defaults instead of 500 error
+        return {
+            "fetch_pipeline": {
+                "total_jobs": 0,
+                "success_rate": 0,
+                "avg_job_duration_seconds": 0,
+                "total_records_fetched": 0
+            },
+            "compute_pipeline": {
+                "total_computations": 0,
+                "success_rate": 0,
+                "avg_computation_time_ms": 0,
+                "total_features_computed": 0
+            },
+            "data_quality": {
+                "avg_validation_rate": 0,
+                "avg_quality_score": 0,
+                "avg_data_completeness": 0
+            },
+            "symbol_health": {
+                "healthy": 0,
+                "warning": 0,
+                "stale": 0,
+                "error": 0,
+                "total": 0
+            },
+            "last_24h": {
+                "records_fetched": 0,
+                "features_computed": 0
+            },
+            "timestamp": datetime.utcnow().isoformat()
+        }
+
+
+@app.get("/api/v1/enrichment/history")
+async def enrichment_history(limit: int = Query(10, ge=1, le=100)):
+    """
+    Get recent enrichment job history.
+    
+    Args:
+        limit: Number of recent jobs to return (max 100)
+    
+    Returns:
+        {
+            "jobs": [
+                {
+                    "symbol": "AAPL",
+                    "status": "success|failed",
+                    "records_fetched": 250,
+                    "records_inserted": 250,
+                    "response_time_ms": 1250,
+                    "created_at": "2024-11-19T10:30:00Z"
+                }
+            ]
+        }
+    """
+    try:
+        session = db.SessionLocal()
+        try:
+            from sqlalchemy import text
+            
+            # Get recent enrichment logs
+            jobs = session.execute(
+                text("""
+                    SELECT symbol,
+                           success,
+                           records_fetched,
+                           records_inserted,
+                           source_response_time_ms,
+                           created_at
+                    FROM enrichment_fetch_log
+                    ORDER BY created_at DESC
+                    LIMIT :limit
+                """),
+                {"limit": limit}
+            ).all()
+            
+            job_list = []
+            for job in jobs:
+                job_list.append({
+                    "symbol": job[0],
+                    "status": "success" if job[1] else "failed",
+                    "records_fetched": job[2] or 0,
+                    "records_inserted": job[3] or 0,
+                    "response_time_ms": job[4] or 0,
+                    "created_at": job[5].isoformat() if job[5] else None
+                })
+            
+            return {
+                "jobs": job_list,
+                "count": len(job_list),
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        finally:
+            session.close()
+    
+    except Exception as e:
+        logger.error(f"Error getting enrichment history: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/v1/enrichment/dashboard/health")
+async def enrichment_dashboard_health():
+    """
+    Get system health status for monitoring dashboard.
+    
+    Returns:
+        {
+            "scheduler": "healthy|degraded|critical",
+            "database": "healthy|degraded|critical",
+            "api_connectivity": "healthy|degraded|critical",
+            "recent_failures_24h": 3,
+            "last_health_check": "2024-11-19T10:35:00Z"
+        }
+    """
+    try:
+        session = db.SessionLocal()
+        try:
+            from sqlalchemy import text
+            
+            # Check recent failures (last 24 hours)
+            failure_count = session.execute(
+                text("""
+                    SELECT COUNT(*) 
+                    FROM enrichment_fetch_log
+                    WHERE success = FALSE
+                    AND created_at > NOW() - INTERVAL '24 hours'
+                """)
+            ).scalar() or 0
+            
+            # Check total jobs last 24h for failure rate
+            total_jobs = session.execute(
+                text("""
+                    SELECT COUNT(*) 
+                    FROM enrichment_fetch_log
+                    WHERE created_at > NOW() - INTERVAL '24 hours'
+                """)
+            ).scalar() or 1
+            
+            failure_rate = (failure_count / total_jobs * 100) if total_jobs > 0 else 0
+            
+            # Determine scheduler health
+            scheduler_health = "healthy" if scheduler.scheduler.running else "degraded"
+            
+            # Determine overall status based on failure rate
+            if failure_rate > 20:
+                api_health = "critical"
+            elif failure_rate > 5:
+                api_health = "degraded"
+            else:
+                api_health = "healthy"
+            
+            # Database health (assume healthy if we can query)
+            db_health = "healthy"
+            
+            return {
+                "scheduler": scheduler_health,
+                "database": db_health,
+                "api_connectivity": api_health,
+                "recent_failures_24h": failure_count,
+                "failure_rate_percent": round(failure_rate, 1),
+                "last_health_check": datetime.utcnow().isoformat()
+            }
+        finally:
+            session.close()
+    
+    except Exception as e:
+        logger.error(f"Error getting enrichment health: {e}")
+        # Return degraded status on error rather than 500
+        return {
+            "scheduler": "unknown",
+            "database": "unknown",
+            "api_connectivity": "unknown",
+            "recent_failures_24h": 0,
+            "failure_rate_percent": 0,
+            "last_health_check": datetime.utcnow().isoformat(),
+            "error": str(e)
+        }
+
+
 @app.post("/api/v1/enrichment/trigger")
 async def trigger_enrichment(
     symbol: str = Query(..., description="Symbol to enrich"),
@@ -1755,74 +2220,59 @@ async def trigger_enrichment(
 
 
 @app.post("/api/v1/backfill")
-async def bulk_backfill(
-symbols: List[str] = Query(..., description="List of symbols to backfill"),
-start_date: str = Query(..., description="Start date (YYYY-MM-DD)"),
-end_date: str = Query(..., description="End date (YYYY-MM-DD)"),
-timeframes: List[str] = Query(['1d'], description="Timeframes to backfill")
-):
+async def bulk_backfill(request: BackfillRequest = Body(...)):
     """
     Trigger backfill for multiple symbols (non-blocking, returns immediately).
 
-    Args:
-        symbols: List of asset symbols
-        start_date: Start date in YYYY-MM-DD format
-        end_date: End date in YYYY-MM-DD format
-        timeframes: List of timeframes to backfill
+    Request body (JSON):
+        {
+            "symbols": ["AAPL", "GOOGL", ...],
+            "start_date": "YYYY-MM-DD",
+            "end_date": "YYYY-MM-DD",
+            "timeframes": ["1d", "1h", "5m"]
+        }
 
     Returns:
         Job info with ID and status
     """
     try:
-        from datetime import datetime as dt
-        from src.services.backfill_worker import enqueue_backfill_job
+        from src.services import backfill_worker
 
-        # Validate inputs
-        if not symbols:
-            raise ValueError("At least one symbol required")
-        if len(symbols) > 100:
-            raise ValueError("Maximum 100 symbols per request")
-
-        # Parse dates
-        try:
-            start = dt.strptime(start_date, '%Y-%m-%d')
-            end = dt.strptime(end_date, '%Y-%m-%d')
-        except ValueError:
-            raise ValueError("Invalid date format. Use YYYY-MM-DD")
-
-        if start > end:
-            raise ValueError("Start date must be before end date")
+        # Initialize backfill worker if not already done (handles multi-worker scenarios)
+        if not backfill_worker._backfill_worker:
+            logger.info("Initializing backfill worker in request handler")
+            init_backfill_worker(db, scheduler.polygon_client)
 
         # Create job ID
         job_id = str(uuid.uuid4())
 
         # Create job record in database
-        db.create_backfill_job(job_id, symbols, start_date, end_date, timeframes)
+        db.create_backfill_job(job_id, request.symbols, request.start_date, request.end_date, request.timeframes)
 
         # Queue the backfill task (runs in background)
-        enqueue_backfill_job(job_id, symbols, start_date, end_date, timeframes)
+        backfill_worker.enqueue_backfill_job(job_id, request.symbols, request.start_date, request.end_date, request.timeframes)
 
         # Log the backfill request
-        logger.info(f"Backfill job created: {len(symbols)} symbols, {len(timeframes)} timeframes",
-                   extra={
-                        'job_id': job_id,
-                        'symbol_count': len(symbols),
-                        'date_range': f"{start_date} to {end_date}",
-                        'timeframes': timeframes
-                    })
+        logger.info(f"Backfill job created: {len(request.symbols)} symbols, {len(request.timeframes)} timeframes",
+        extra={
+        'job_id': job_id,
+        'symbol_count': len(request.symbols),
+        'date_range': f"{request.start_date} to {request.end_date}",
+        'timeframes': request.timeframes
+        })
 
         return {
-            'job_id': job_id,
-            'status': 'queued',
-            'symbols_count': len(symbols),
-            'symbols': symbols[:10] + (['...'] if len(symbols) > 10 else []),
-            'date_range': {'start': start_date, 'end': end_date},
-            'timeframes': timeframes,
-            'timestamp': datetime.utcnow().isoformat()
+        'job_id': job_id,
+        'status': 'queued',
+        'symbols_count': len(request.symbols),
+        'symbols': request.symbols[:10] + (['...'] if len(request.symbols) > 10 else []),
+        'date_range': {'start': request.start_date, 'end': request.end_date},
+        'timeframes': request.timeframes,
+        'timestamp': datetime.utcnow().isoformat()
         }
     
     except Exception as e:
-        logger.error(f"Error in bulk backfill: {e}", extra={'error': str(e)})
+        logger.error(f"Error in bulk backfill: {e}", extra={'error': str(e), 'type': type(e).__name__}, exc_info=True)
         raise HTTPException(status_code=400, detail=str(e))
 
 
@@ -1830,17 +2280,21 @@ timeframes: List[str] = Query(['1d'], description="Timeframes to backfill")
 async def get_backfill_status(job_id: str):
     """Get progress status of a backfill job."""
     try:
+        logger.info(f"GET /backfill/status/{job_id}")
         status = db.get_backfill_job_status(job_id)
+        logger.info(f"Status response: {status}")
         
-        if 'error' in status:
+        if 'error' in status and status['error'] == "Job not found":
+            logger.warning(f"Job not found in response")
             raise HTTPException(status_code=404, detail="Job not found")
         
+        logger.info(f"Returning status: {status}")
         return status
     
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error getting backfill status: {e}")
+        logger.error(f"Error getting backfill status: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -2672,6 +3126,72 @@ async def get_scheduler_execution_history(limit: int = Query(20, ge=1, le=100)):
         logger.error(f"Error getting execution history: {e}", extra={'error': str(e)})
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@app.get("/api/v1/enrichment/history")
+async def get_enrichment_history(
+    symbol: str = Query(None),
+    limit: int = Query(10, ge=1, le=100),
+    status: str = Query(None)
+):
+    """Get recent enrichment job history"""
+    try:
+        from sqlalchemy import text
+        
+        session = db.SessionLocal()
+        
+        query = """
+            SELECT job_id, symbol, timeframe, status, records_fetched, records_inserted,
+                   duration_seconds, started_at, completed_at
+            FROM backfill_job_progress
+            WHERE created_at > NOW() - INTERVAL '7 days'
+        """
+        
+        params = {}
+        
+        if symbol:
+            query += " AND symbol = :symbol"
+            params['symbol'] = symbol
+        
+        if status:
+            query += " AND status = :status"
+            params['status'] = status
+        
+        query += " ORDER BY completed_at DESC NULLS LAST LIMIT :limit"
+        params['limit'] = limit
+        
+        results = session.execute(text(query), params).fetchall()
+        
+        history = [
+            {
+                "job_id": str(r[0]),
+                "symbol": r[1],
+                "timeframe": r[2],
+                "status": r[3],
+                "records_fetched": r[4],
+                "records_inserted": r[5],
+                "response_time": r[6],
+                "started_at": r[7].isoformat() if r[7] else None,
+                "completed_at": r[8].isoformat() if r[8] else None,
+                "timestamp": r[8].isoformat() if r[8] else r[7].isoformat() if r[7] else None
+            }
+            for r in results
+        ]
+        
+        session.close()
+        
+        return {
+            "timestamp": datetime.utcnow().isoformat(),
+            "count": len(history),
+            "history": history
+        }
+    
+    except Exception as e:
+        logger.error(f"Error getting enrichment history: {e}", extra={'error': str(e)})
+        return {
+            "timestamp": datetime.utcnow().isoformat(),
+            "count": 0,
+            "history": []
+        }
 
 
 if __name__ == "__main__":

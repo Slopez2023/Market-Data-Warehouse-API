@@ -8,6 +8,44 @@ from decimal import Decimal
 logger = logging.getLogger(__name__)
 
 
+class AssetClassValidator:
+    """Asset-class aware validation thresholds."""
+    
+    THRESHOLDS = {
+        'stock': {
+            'low_volume_multiplier': 0.20,    # 20% of median = LOW
+            'high_volume_multiplier': 5.0,    # 5x median = HIGH
+            'gap_threshold': 15.0,            # 15% gap = ALERT
+        },
+        'etf': {
+            'low_volume_multiplier': 0.15,    # 15% of median = LOW
+            'high_volume_multiplier': 4.0,    # 4x median = HIGH
+            'gap_threshold': 12.0,            # 12% gap = ALERT
+        },
+        'crypto': {
+            'low_volume_multiplier': 0.001,   # 0.1% of median = LOW (very lenient for 24/7 trading)
+            'high_volume_multiplier': 50.0,   # 50x median = HIGH
+            'gap_threshold': 30.0,            # 30% gap = ALERT (crypto is volatile)
+        }
+    }
+    
+    @staticmethod
+    def get_asset_class(symbol: str) -> str:
+        """Determine asset class from symbol."""
+        if symbol.endswith('-USD'):
+            return 'crypto'
+        elif 'ETF' in symbol.upper() or symbol in ['IVV', 'VOO', 'SPY', 'QQQ', 'DIA']:
+            return 'etf'
+        else:
+            return 'stock'
+    
+    @staticmethod
+    def get_thresholds(symbol: str) -> dict:
+        """Get validation thresholds for asset class."""
+        asset_class = AssetClassValidator.get_asset_class(symbol)
+        return AssetClassValidator.THRESHOLDS[asset_class]
+
+
 class ValidationService:
     """
     Validates OHLCV candles and detects anomalies.
@@ -23,9 +61,8 @@ class ValidationService:
     
     def __init__(self):
         self.max_price_move_pct = 500.0  # Reasonable intraday move threshold
-        self.volume_anomaly_threshold_high = 10.0  # 10x median = anomaly
-        self.volume_anomaly_threshold_low = 0.1  # <10% median = possible delisting
-        self.gap_threshold_pct = 10.0  # Large gap flag threshold
+        # Thresholds now asset-aware (see AssetClassValidator)
+        self.asset_validator = AssetClassValidator()
     
     def validate_candle(
         self,
@@ -51,6 +88,12 @@ class ValidationService:
         gap_detected = False
         volume_anomaly = False
         
+        # Get asset-specific thresholds
+        thresholds = self.asset_validator.get_thresholds(symbol)
+        volume_low_threshold = thresholds['low_volume_multiplier']
+        volume_high_threshold = thresholds['high_volume_multiplier']
+        gap_threshold = thresholds['gap_threshold']
+        
         try:
             # Extract fields
             open_price = Decimal(str(candle.get('o', 0)))
@@ -74,7 +117,7 @@ class ValidationService:
             # Check 3: Gap detection (vs previous close)
             if prev_close is not None:
                 gap_pct = self._calculate_gap_pct(prev_close, open_price)
-                if gap_pct > self.gap_threshold_pct:
+                if gap_pct > gap_threshold:
                     # Check if it's a weekend (normal, expected)
                     # Polygon timestamp is in milliseconds
                     ts = candle.get('t')
@@ -89,21 +132,26 @@ class ValidationService:
                         validation_notes.append(f"large_gap_{gap_pct:.1f}pct")
                         logger.info(f"{symbol}: Large gap detected ({gap_pct:.1f}%) - possible split/halt")
             
-            # Check 4: Volume anomaly
+            # Check 4: Volume anomaly (asset-aware thresholds)
             if median_volume is not None and volume > 0:
                 volume_ratio = volume / median_volume if median_volume > 0 else 1.0
                 
-                if volume_ratio > self.volume_anomaly_threshold_high:
+                if volume_ratio > volume_high_threshold:
                     volume_anomaly = True
                     quality_score -= 0.1
                     validation_notes.append(f"volume_anomaly_high_{volume_ratio:.1f}x")
                     logger.info(f"{symbol}: High volume anomaly ({volume_ratio:.1f}x median)")
                 
-                elif volume_ratio < self.volume_anomaly_threshold_low:
+                elif volume_ratio < volume_low_threshold:
                     volume_anomaly = True
                     quality_score -= 0.15
                     validation_notes.append(f"volume_anomaly_low_{volume_ratio:.2f}x")
-                    logger.info(f"{symbol}: Low volume anomaly ({volume_ratio:.2f}x median) - possible delisting")
+                    # Only flag delisting for stocks/ETFs, not crypto (24/7 trading)
+                    asset_class = self.asset_validator.get_asset_class(symbol)
+                    if asset_class in ['stock', 'etf']:
+                        logger.info(f"{symbol}: Low volume anomaly ({volume_ratio:.2f}x median) - possible delisting")
+                    else:
+                        logger.info(f"{symbol}: Low volume anomaly ({volume_ratio:.2f}x median) - normal for 24/7 trading")
             
             # Clamp quality score to valid range
             quality_score = max(0.0, min(1.0, quality_score))

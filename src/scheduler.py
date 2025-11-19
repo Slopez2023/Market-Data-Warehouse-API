@@ -9,7 +9,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 import asyncpg
 
-from src.clients.polygon_client import PolygonClient
+from src.clients.multi_source_client import MultiSourceClient
 from src.services.validation_service import ValidationService
 from src.services.database_service import DatabaseService
 from src.quant_engine.quant_features import QuantFeatureEngine
@@ -63,7 +63,10 @@ class AutoBackfillScheduler:
             parallel_backfill: Phase 3 - Enable parallel symbol processing (default True)
             max_concurrent_symbols: Phase 3 - Max concurrent symbols to process (default 3)
         """
-        self.polygon_client = PolygonClient(polygon_api_key)
+        self.data_client = MultiSourceClient(
+            polygon_api_key=polygon_api_key,
+            enable_fallback=True
+        )
         self.db_service = DatabaseService(database_url)
         self.validation_service = ValidationService()
         self.database_url = database_url
@@ -529,17 +532,18 @@ class AutoBackfillScheduler:
         Handles both stocks and crypto across multiple timeframes.
         """
         try:
-            # Fetch from Polygon based on asset class and timeframe
-            candles = await self.polygon_client.fetch_range(
-            symbol,
-            timeframe,
-            start=start_date.strftime('%Y-%m-%d'),
-            end=end_date.strftime('%Y-%m-%d'),
-            is_crypto=(asset_class == "crypto")  # Pass asset class flag to normalize crypto symbols
+            # Fetch from multi-source with fallback
+            candles, source = await self.data_client.fetch_range(
+                symbol,
+                timeframe,
+                start=start_date.strftime('%Y-%m-%d'),
+                end=end_date.strftime('%Y-%m-%d'),
+                is_crypto=(asset_class == "crypto"),  # Pass asset class flag to normalize crypto symbols
+                validate=False  # Live data, just get it fast
             )
             
             if not candles:
-                logger.warning(f"No data returned from Polygon for {symbol}")
+                logger.warning(f"No data returned from {source or 'any source'} for {symbol}")
                 self.db_service.log_backfill(
                     symbol,
                     start_date.strftime('%Y-%m-%d'),
@@ -594,8 +598,8 @@ class AutoBackfillScheduler:
             candles_to_insert = [c for c, _ in metadata_list]
             metadata_to_insert = [m for _, m in metadata_list]
             
-            # Insert into database with timeframe
-            inserted = self.db_service.insert_ohlcv_batch(symbol, candles_to_insert, metadata_to_insert, timeframe)
+            # Insert into database with timeframe and source
+            inserted = self.db_service.insert_ohlcv_batch(symbol, candles_to_insert, metadata_to_insert, timeframe, source=source)
             
             # Generate quant features if insertion successful
             if inserted > 0:

@@ -31,6 +31,8 @@ import asyncpg
 import holidays
 
 from dotenv import load_dotenv
+from src.clients.multi_source_client import MultiSourceClient
+from src.services.validation_service import ValidationService
 
 # Load environment
 load_dotenv()
@@ -71,6 +73,14 @@ class MasterBackfiller:
         self.max_concurrent_symbols = max_concurrent_symbols
         self.days_history = days_history
         self.market_type = market_type
+        
+        # Initialize multi-source client with fallback
+        self.data_client = MultiSourceClient(
+            polygon_api_key=polygon_api_key,
+            validation_service=ValidationService(),
+            enable_fallback=True,
+            fallback_threshold=0.85
+        )
         
         # Load market holidays (US stock market)
         self.market_holidays = holidays.US() if market_type == "US" else None

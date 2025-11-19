@@ -27,8 +27,8 @@ class AppConfig:
         self.api_host = self._get_optional("API_HOST", "0.0.0.0", "API host")
         self.api_port = self._get_int("API_PORT", 8000, "API port")
         self.api_workers = self._get_int("API_WORKERS", 4, "API worker threads")
-        self.backfill_schedule_hour = self._get_int("BACKFILL_SCHEDULE_HOUR", 2, "Backfill schedule hour (UTC 0-23)")
-        self.backfill_schedule_minute = self._get_int("BACKFILL_SCHEDULE_MINUTE", 0, "Backfill schedule minute (0-59)")
+        self.backfill_schedule_hour = self._get_int("BACKFILL_SCHEDULE_HOUR", 2, "(Deprecated) Backfill schedule hour - scheduler now runs hourly")
+        self.backfill_schedule_minute = self._get_int("BACKFILL_SCHEDULE_MINUTE", 0, "Backfill schedule minute every hour (0-59)")
 
         # Alerting configuration (optional)
         self.alert_email_enabled = self._get_bool("ALERT_EMAIL_ENABLED", False, "Enable email alerts")
@@ -111,7 +111,7 @@ class AppConfig:
         logger.info(f"  Polygon API Key: {self._redact_key(self.polygon_api_key)}")
         logger.info(f"  Log Level: {self.log_level}")
         logger.info(f"  API: {self.api_host}:{self.api_port} ({self.api_workers} workers)")
-        logger.info(f"  Backfill Schedule: {self.backfill_schedule_hour:02d}:{self.backfill_schedule_minute:02d} UTC daily")
+        logger.info(f"  Backfill Schedule: Every hour at :{self.backfill_schedule_minute:02d} UTC")
         if self.alert_email_enabled:
             logger.info(f"  Email Alerts: {self.alert_email_to}")
         if self.alert_webhook_enabled:
