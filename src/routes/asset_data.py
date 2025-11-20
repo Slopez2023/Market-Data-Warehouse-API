@@ -149,3 +149,39 @@ async def get_asset_status(symbol: str):
     except Exception as e:
         logger.error(f"Error getting status for {symbol}", extra={"error": str(e)})
         raise HTTPException(status_code=500, detail="Error retrieving status data")
+
+@router.get("/{symbol}/details")
+async def get_asset_details(symbol: str):
+    """
+    Get detailed asset information (dashboard compatibility)
+
+    Args:
+        symbol: Stock symbol
+
+    Returns:
+        Detailed asset information
+    """
+    db = get_db()
+
+    try:
+        stats = db.get_symbol_stats(symbol)
+        if not stats or stats.get("record_count", 0) == 0:
+            raise HTTPException(status_code=404, detail=f"No data found for symbol {symbol}")
+
+        return {
+            "symbol": symbol,
+            "status": "healthy",
+            "total_records": stats.get("record_count", 0),
+            "date_range": stats.get("date_range", {}),
+            "quality": {
+                "validation_rate": stats.get("validation_rate", 0),
+                "gaps_detected": stats.get("gaps_detected", 0),
+                "health": "excellent" if stats.get("validation_rate", 0) > 0.95 else "good"
+            }
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting details for {symbol}", extra={"error": str(e)})
+        raise HTTPException(status_code=500, detail="Error retrieving details")
