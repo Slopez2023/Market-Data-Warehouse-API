@@ -108,6 +108,64 @@ async def get_asset_candles(
         logger.error(f"Error getting candles for {symbol}/{timeframe}", extra={"error": str(e)})
         raise HTTPException(status_code=500, detail="Error retrieving candle data")
 
+@router.get("/{symbol}/candles/{timeframe}")
+async def get_asset_candles_by_timeframe(
+    symbol: str,
+    timeframe: str,
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0)
+):
+    """
+    Get candle data with timeframe as path parameter (dashboard compatibility)
+
+    Args:
+        symbol: Stock symbol
+        timeframe: Candle timeframe (1m, 5m, 15m, 30m, 1h, 4h, 1d, 1w)
+        limit: Number of candles to return (max 1000)
+        offset: Pagination offset
+
+    Returns:
+        Paginated candles with OHLCV data
+    """
+    db = get_db()
+
+    try:
+        # Get historical data
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=30)
+        
+        # Get candles using available method
+        result = db.get_historical_data(
+            symbol=symbol,
+            start=start_date.isoformat(),
+            end=end_date.isoformat(),
+            timeframe=timeframe
+        )
+
+        if not result:
+            raise HTTPException(status_code=404, detail=f"No candle data found for {symbol}/{timeframe}")
+
+        # Apply limit
+        candles = result[:limit] if limit else result
+
+        return {
+            "symbol": symbol,
+            "timeframe": timeframe,
+            "total_records": len(candles),
+            "candles": candles,
+            "pagination": {
+                "limit": limit,
+                "offset": offset,
+                "total": len(result)
+            }
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting candles for {symbol}/{timeframe}", extra={"error": str(e)})
+        raise HTTPException(status_code=500, detail="Error retrieving candle data")
+
 @router.get("/{symbol}/status")
 async def get_asset_status(symbol: str):
     """
