@@ -57,6 +57,7 @@ class TestQuantFeaturesDataFormat:
         required_cols = [
             "return_1d", "volatility_20", "volatility_50", "atr",
             "rolling_volume_20", "volume_ratio",
+            "rolling_mean_10", "rolling_slope_10",
             "structure_label", "trend_direction", "volatility_regime",
             "trend_regime", "compression_regime"
         ]
@@ -167,7 +168,8 @@ class TestQuantFeatureQuality:
         
         numeric_cols = [
             "return_1d", "volatility_20", "volatility_50", "atr",
-            "rolling_volume_20", "volume_ratio"
+            "rolling_volume_20", "volume_ratio",
+            "rolling_mean_10", "rolling_slope_10"
         ]
         
         for col in numeric_cols:

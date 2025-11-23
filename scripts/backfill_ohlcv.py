@@ -69,7 +69,7 @@ async def update_symbol_timeframe(database_url: str, symbol: str, timeframe: str
             # Sort for consistency
             current_timeframes = sorted(
                 current_timeframes,
-                key=lambda x: (['5m', '15m', '30m', '1h', '4h', '1d', '1w'].index(x))
+                key=lambda x: (['1m', '5m', '15m', '30m', '1h', '4h', '1d', '1w'].index(x))
             )
             
             await conn.execute(
@@ -107,7 +107,7 @@ async def backfill_symbol(
         db_service: Database service
         start_date: Start date for backfill
         end_date: End date for backfill
-        timeframe: Timeframe (default '1d'). Supported: 5m, 15m, 30m, 1h, 4h, 1d, 1w
+        timeframe: Timeframe (default '1d'). Supported: 1m, 5m, 15m, 30m, 1h, 4h, 1d, 1w
     
     Returns:
         (inserted_count, failed_count)
@@ -211,7 +211,7 @@ def _parse_args():
         "--timeframe",
         type=str,
         default="1d",
-        help="Timeframe: 5m, 15m, 30m, 1h, 4h, 1d (default), 1w"
+        help="Timeframe: 1m, 5m, 15m, 30m, 1h, 4h, 1d (default), 1w"
     )
     return parser.parse_args()
 
@@ -268,8 +268,8 @@ async def main():
         return
     
     # Validate timeframe
-    if args.timeframe not in ['5m', '15m', '30m', '1h', '4h', '1d', '1w']:
-        logger.error(f"Invalid timeframe: {args.timeframe}. Must be one of: 5m, 15m, 30m, 1h, 4h, 1d, 1w")
+    if args.timeframe not in ['1m', '5m', '15m', '30m', '1h', '4h', '1d', '1w']:
+        logger.error(f"Invalid timeframe: {args.timeframe}. Must be one of: 1m, 5m, 15m, 30m, 1h, 4h, 1d, 1w")
         return
     
     polygon_api_key = os.getenv("POLYGON_API_KEY")

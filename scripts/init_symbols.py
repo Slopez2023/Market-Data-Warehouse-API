@@ -18,6 +18,7 @@ This will:
 Execution time: ~3-5 seconds
 
 Timeframes pulled for each symbol:
+- 1m (1 minute)
 - 5m (5 minutes)
 - 15m (15 minutes)
 - 30m (30 minutes)
@@ -167,10 +168,10 @@ async def init_symbols(args):
                         await conn.execute(
                             """
                             INSERT INTO tracked_symbols (symbol, asset_class, active, timeframes)
-                            VALUES ($1, $2, TRUE, ARRAY['5m', '15m', '30m', '1h', '4h', '1d', '1w'])
+                            VALUES ($1, $2, TRUE, ARRAY['1m', '5m', '15m', '30m', '1h', '4h', '1d', '1w'])
                             ON CONFLICT (symbol) DO UPDATE SET 
                                 asset_class = $2,
-                                timeframes = ARRAY['5m', '15m', '30m', '1h', '4h', '1d', '1w']
+                                timeframes = ARRAY['1m', '5m', '15m', '30m', '1h', '4h', '1d', '1w']
                             """,
                             symbol, asset_class
                         )

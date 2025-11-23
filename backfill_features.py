@@ -314,6 +314,8 @@ class FeatureEnricher:
                 'atr': float(row.get('atr', 0)),
                 'rolling_volume_20': int(row.get('rolling_volume_20', 0)),
                 'volume_ratio': float(row.get('volume_ratio', 1)),
+                'rolling_mean_10': float(row.get('rolling_mean_10', 0)),
+                'rolling_slope_10': float(row.get('rolling_slope_10', 0)),
                 'structure_label': str(row.get('structure_label', 'range')),
                 'trend_direction': str(row.get('trend_direction', 'neutral')),
                 'volatility_regime': str(row.get('volatility_regime', 'medium')),

@@ -67,6 +67,10 @@ class QuantFeatureEngine:
         # Compute ATR
         df = compute_atr(df)
 
+        # Compute rolling mean and slope
+        df = compute_rolling_mean(df)
+        df = compute_slope(df)
+
         # Compute volume features
         df = compute_volume_features(df)
 
@@ -155,6 +159,31 @@ def compute_atr(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
     # Forward fill NaN
     df["atr"] = df["atr"].bfill().fillna(0)
 
+    return df
+
+def compute_rolling_mean(df: pd.DataFrame, period: int = 10) -> pd.DataFrame:
+    """
+    Compute rolling mean (Simple Moving Average).
+
+    Returns:
+    - rolling_mean_10: 10-period SMA of close
+    """
+    df["rolling_mean_10"] = df["close"].rolling(window=period).mean()
+    df["rolling_mean_10"] = df["rolling_mean_10"].bfill().fillna(df["close"].mean())
+    return df
+
+def compute_slope(df: pd.DataFrame, period: int = 10) -> pd.DataFrame:
+    """
+    Compute slope of rolling mean (trend direction strength).
+
+    Slope = (current_rolling_mean - previous_rolling_mean) / period
+    Positive = uptrend, Negative = downtrend
+
+    Returns:
+    - rolling_slope_10: Slope of 10-period rolling mean
+    """
+    df["rolling_slope_10"] = df["rolling_mean_10"].diff() / period
+    df["rolling_slope_10"] = df["rolling_slope_10"].fillna(0)
     return df
 
 
@@ -287,6 +316,8 @@ def extract_numeric_features(df: pd.DataFrame) -> Dict[str, float]:
         "atr": float(latest.get("atr", 0)) if pd.notna(latest.get("atr")) else 0,
         "rolling_volume_20": int(latest.get("rolling_volume_20", 0)) if pd.notna(latest.get("rolling_volume_20")) else 0,
         "volume_ratio": float(latest.get("volume_ratio", 1)) if pd.notna(latest.get("volume_ratio")) else 1,
+        "rolling_mean_10": float(latest.get("rolling_mean_10", 0)) if pd.notna(latest.get("rolling_mean_10")) else 0,
+        "rolling_slope_10": float(latest.get("rolling_slope_10", 0)) if pd.notna(latest.get("rolling_slope_10")) else 0,
     }
     return features
 

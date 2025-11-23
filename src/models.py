@@ -189,8 +189,8 @@ class UpdateAPIKeyRequest(BaseModel):
 class BackfillRequest(BaseModel):
     """Request to submit a backfill job"""
     symbols: List[str] = Field(..., min_items=1, max_items=100, description="List of symbols to backfill")
-    start_date: str = Field(..., description="Start date in YYYY-MM-DD format")
-    end_date: str = Field(..., description="End date in YYYY-MM-DD format")
+    start_date: Optional[str] = Field(None, description="Start date in YYYY-MM-DD format (optional, defaults to 365 days ago)")
+    end_date: Optional[str] = Field(None, description="End date in YYYY-MM-DD format (optional, defaults to today)")
     timeframes: List[str] = Field(default=["1d"], description="List of timeframes to backfill")
     
     @validator('symbols')
@@ -202,9 +202,11 @@ class BackfillRequest(BaseModel):
             raise ValueError("Maximum 100 symbols per request")
         return v
     
-    @validator('start_date', 'end_date')
+    @validator('start_date', 'end_date', pre=True, always=True)
     def validate_date_format(cls, v):
-        """Validate date format"""
+        """Validate date format (optional)"""
+        if v is None:
+            return v
         from datetime import datetime as dt
         try:
             dt.strptime(v, '%Y-%m-%d')
@@ -215,12 +217,13 @@ class BackfillRequest(BaseModel):
     @validator('end_date')
     def validate_date_range(cls, v, values):
         """Validate start_date < end_date"""
-        if 'start_date' in values:
-            from datetime import datetime as dt
-            start = dt.strptime(values['start_date'], '%Y-%m-%d')
-            end = dt.strptime(v, '%Y-%m-%d')
-            if start >= end:
-                raise ValueError("Start date must be before end date")
+        if v is None or 'start_date' not in values or values['start_date'] is None:
+            return v
+        from datetime import datetime as dt
+        start = dt.strptime(values['start_date'], '%Y-%m-%d')
+        end = dt.strptime(v, '%Y-%m-%d')
+        if start >= end:
+            raise ValueError("Start date must be before end date")
         return v
 
 

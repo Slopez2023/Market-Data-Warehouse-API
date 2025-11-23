@@ -890,7 +890,7 @@ class DatabaseService:
     ) -> int:
         """
         Insert computed quant features for OHLCV data.
-        
+
         Args:
             symbol: Stock ticker
             timeframe: Candle timeframe
@@ -902,44 +902,48 @@ class DatabaseService:
                 - atr: float
                 - rolling_volume_20: int
                 - volume_ratio: float
+                - rolling_mean_10: float
+                - rolling_slope_10: float
                 - structure_label: str
                 - trend_direction: str
                 - volatility_regime: str
                 - trend_regime: str
                 - compression_regime: str
-        
+
         Returns:
             Number of rows updated with features
         """
         if not features_data:
             return 0
-        
+
         session = self.SessionLocal()
         updated = 0
-        
+
         try:
             for feature in features_data:
                 # Update market_data with computed features
                 update_stmt = text("""
                     UPDATE market_data
-                    SET 
+                    SET
                         return_1d = :return_1d,
                         volatility_20 = :volatility_20,
                         volatility_50 = :volatility_50,
                         atr = :atr,
                         rolling_volume_20 = :rolling_volume_20,
                         volume_ratio = :volume_ratio,
+                        rolling_mean_10 = :rolling_mean_10,
+                        rolling_slope_10 = :rolling_slope_10,
                         structure_label = :structure_label,
                         trend_direction = :trend_direction,
                         volatility_regime = :volatility_regime,
                         trend_regime = :trend_regime,
                         compression_regime = :compression_regime,
                         features_computed_at = :computed_at
-                    WHERE symbol = :symbol 
-                        AND timeframe = :timeframe 
+                    WHERE symbol = :symbol
+                        AND timeframe = :timeframe
                         AND time = :time
                 """)
-                
+
                 result = session.execute(update_stmt, {
                     'symbol': symbol,
                     'timeframe': timeframe,
@@ -950,6 +954,8 @@ class DatabaseService:
                     'atr': feature.get('atr'),
                     'rolling_volume_20': feature.get('rolling_volume_20'),
                     'volume_ratio': feature.get('volume_ratio'),
+                    'rolling_mean_10': feature.get('rolling_mean_10'),
+                    'rolling_slope_10': feature.get('rolling_slope_10'),
                     'structure_label': feature.get('structure_label'),
                     'trend_direction': feature.get('trend_direction'),
                     'volatility_regime': feature.get('volatility_regime'),
@@ -1015,21 +1021,21 @@ class DatabaseService:
             where_clause = " AND ".join(conditions)
             
             sql = f"""
-                SELECT 
+                SELECT
                     time, symbol, timeframe, open, high, low, close, volume,
                     return_1d, volatility_20, volatility_50, atr, rolling_volume_20,
-                    volume_ratio, structure_label, trend_direction, volatility_regime,
-                    trend_regime, compression_regime, quality_score, validated,
-                    features_computed_at
+                    volume_ratio, rolling_mean_10, rolling_slope_10, structure_label, 
+                    trend_direction, volatility_regime, trend_regime, compression_regime, 
+                    quality_score, validated, features_computed_at
                 FROM market_data
                 WHERE {where_clause}
                 ORDER BY time ASC
                 LIMIT :limit
             """
-            
+
             result = session.execute(text(sql), params)
             rows = result.fetchall()
-            
+
             # Convert to list of dicts
             data = []
             for row in rows:
@@ -1048,14 +1054,16 @@ class DatabaseService:
                     'atr': float(row[11]) if row[11] is not None else None,
                     'rolling_volume_20': row[12],
                     'volume_ratio': float(row[13]) if row[13] is not None else None,
-                    'structure_label': row[14],
-                    'trend_direction': row[15],
-                    'volatility_regime': row[16],
-                    'trend_regime': row[17],
-                    'compression_regime': row[18],
-                    'quality_score': float(row[19]) if row[19] is not None else None,
-                    'validated': row[20],
-                    'features_computed_at': row[21].isoformat() if row[21] else None
+                    'rolling_mean_10': float(row[14]) if row[14] is not None else None,
+                    'rolling_slope_10': float(row[15]) if row[15] is not None else None,
+                    'structure_label': row[16],
+                    'trend_direction': row[17],
+                    'volatility_regime': row[18],
+                    'trend_regime': row[19],
+                    'compression_regime': row[20],
+                    'quality_score': float(row[21]) if row[21] is not None else None,
+                    'validated': row[22],
+                    'features_computed_at': row[23].isoformat() if row[23] else None
                 })
             
             logger.info(f"Retrieved {len(data)} quant feature records for {symbol}/{timeframe}")
@@ -1089,15 +1097,15 @@ class DatabaseService:
         
         try:
             upsert_stmt = text("""
-                INSERT INTO quant_feature_summary 
-                (symbol, timeframe, latest_timestamp, return_1d, volatility_20, 
-                 volatility_50, atr, rolling_volume_20, volume_ratio,
-                 structure_label, trend_direction, volatility_regime, 
+                INSERT INTO quant_feature_summary
+                (symbol, timeframe, latest_timestamp, return_1d, volatility_20,
+                 volatility_50, atr, rolling_volume_20, volume_ratio, rolling_mean_10,
+                 rolling_slope_10, structure_label, trend_direction, volatility_regime,
                  trend_regime, compression_regime, computed_at, updated_at)
-                VALUES 
+                VALUES
                 (:symbol, :timeframe, :time, :return_1d, :volatility_20,
-                 :volatility_50, :atr, :rolling_volume_20, :volume_ratio,
-                 :structure_label, :trend_direction, :volatility_regime,
+                 :volatility_50, :atr, :rolling_volume_20, :volume_ratio, :rolling_mean_10,
+                 :rolling_slope_10, :structure_label, :trend_direction, :volatility_regime,
                  :trend_regime, :compression_regime, :now, :now)
                 ON CONFLICT (symbol, timeframe) DO UPDATE SET
                     latest_timestamp = EXCLUDED.latest_timestamp,
@@ -1107,6 +1115,8 @@ class DatabaseService:
                     atr = EXCLUDED.atr,
                     rolling_volume_20 = EXCLUDED.rolling_volume_20,
                     volume_ratio = EXCLUDED.volume_ratio,
+                    rolling_mean_10 = EXCLUDED.rolling_mean_10,
+                    rolling_slope_10 = EXCLUDED.rolling_slope_10,
                     structure_label = EXCLUDED.structure_label,
                     trend_direction = EXCLUDED.trend_direction,
                     volatility_regime = EXCLUDED.volatility_regime,
@@ -1114,7 +1124,7 @@ class DatabaseService:
                     compression_regime = EXCLUDED.compression_regime,
                     updated_at = EXCLUDED.updated_at
             """)
-            
+
             session.execute(upsert_stmt, {
                 'symbol': symbol,
                 'timeframe': timeframe,
@@ -1125,6 +1135,8 @@ class DatabaseService:
                 'atr': latest_record.get('atr'),
                 'rolling_volume_20': latest_record.get('rolling_volume_20'),
                 'volume_ratio': latest_record.get('volume_ratio'),
+                'rolling_mean_10': latest_record.get('rolling_mean_10'),
+                'rolling_slope_10': latest_record.get('rolling_slope_10'),
                 'structure_label': latest_record.get('structure_label'),
                 'trend_direction': latest_record.get('trend_direction'),
                 'volatility_regime': latest_record.get('volatility_regime'),

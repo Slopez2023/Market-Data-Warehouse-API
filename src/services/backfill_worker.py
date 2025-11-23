@@ -1,212 +1,35 @@
-"""Background worker for processing backfill jobs."""
+"""
+DEPRECATED: Use src.services.backfill_orchestrator instead.
 
-import asyncio
-import logging
-from typing import List
-from datetime import datetime
-from sqlalchemy import text
+This module is deprecated. All backfills should use the BackfillOrchestrator
+which wraps master_backfill.py to ensure consistent validation, gap detection,
+and retry logic.
 
-logger = logging.getLogger(__name__)
+Migration:
+- Old: from src.services.backfill_worker import init_backfill_worker
+- New: from src.services.backfill_orchestrator import init_backfill_orchestrator
 
+Both CLI (master_backfill.py) and API (/api/v1/backfill) now use the same
+orchestrator, ensuring no divergence in backfill logic.
+"""
 
-class BackfillWorker:
-    """Processes backfill jobs in the background."""
-    
-    def __init__(self, db_service, polygon_service):
-        self.db = db_service
-        self.polygon = polygon_service
-    
-    async def process_job(self, job_id: str, symbols: List[str], 
-                         start_date: str, end_date: str, 
-                         timeframes: List[str]):
-        """Process a backfill job asynchronously."""
-        import uuid
-        # Ensure job_id is a valid UUID
-        if isinstance(job_id, str):
-            job_id_uuid = uuid.UUID(job_id)
-        else:
-            job_id_uuid = job_id
-        
-        session = self.db.SessionLocal()
-        try:
-            # Mark job as running
-            session.execute(text("""
-                UPDATE backfill_jobs 
-                SET status = 'running', started_at = NOW()
-                WHERE id = :job_id
-            """), {"job_id": job_id_uuid})
-            session.commit()
-            
-            logger.info(f"Starting backfill job {job_id}")
-            
-            total_combinations = len(symbols) * len(timeframes)
-            completed = 0
-            
-            for symbol in symbols:
-                for timeframe in timeframes:
-                    try:
-                        logger.info(f"Processing {symbol} {timeframe} ({completed+1}/{total_combinations})")
-                        
-                        # Update current processing
-                        session.execute(text("""
-                            UPDATE backfill_jobs 
-                            SET current_symbol = :symbol, current_timeframe = :timeframe
-                            WHERE id = :job_id
-                        """), {
-                            "job_id": job_id_uuid,
-                            "symbol": symbol,
-                            "timeframe": timeframe
-                        })
-                        session.commit()
-                        
-                        # Create progress record
-                        session.execute(text("""
-                            INSERT INTO backfill_job_progress (job_id, symbol, timeframe, status, started_at)
-                            VALUES (:job_id, :symbol, :timeframe, 'running', NOW())
-                            ON CONFLICT (job_id, symbol, timeframe) DO UPDATE SET 
-                                status = 'running', started_at = NOW()
-                        """), {
-                            "job_id": job_id_uuid,
-                            "symbol": symbol,
-                            "timeframe": timeframe
-                        })
-                        session.commit()
-                        
-                        # Fetch OHLCV data from Polygon
-                        candles = await self.polygon.fetch_range(
-                            symbol=symbol,
-                            timeframe=timeframe,
-                            start=start_date,
-                            end=end_date
-                        )
-                        
-                        records_fetched = len(candles)
-                        
-                        # Insert into database
-                        records_inserted = await self.db.insert_ohlcv_backfill(
-                            symbol=symbol,
-                            timeframe=timeframe,
-                            candles=candles
-                        )
-                        
-                        # Update progress record
-                        session.execute(text("""
-                            UPDATE backfill_job_progress 
-                            SET status = 'completed', 
-                                records_fetched = :records_fetched,
-                                records_inserted = :records_inserted,
-                                completed_at = NOW(),
-                                duration_seconds = EXTRACT(EPOCH FROM (NOW() - started_at))::INTEGER
-                            WHERE job_id = :job_id AND symbol = :symbol AND timeframe = :timeframe
-                        """), {
-                            "job_id": job_id_uuid,
-                            "symbol": symbol,
-                            "timeframe": timeframe,
-                            "records_fetched": records_fetched,
-                            "records_inserted": records_inserted
-                        })
-                        
-                        # Update parent job totals
-                        session.execute(text("""
-                            UPDATE backfill_jobs 
-                            SET total_records_fetched = total_records_fetched + :records_fetched,
-                                total_records_inserted = total_records_inserted + :records_inserted
-                            WHERE id = :job_id
-                        """), {
-                            "job_id": job_id_uuid,
-                            "records_fetched": records_fetched,
-                            "records_inserted": records_inserted
-                        })
-                        
-                        session.commit()
-                        logger.info(f"Completed {symbol} {timeframe}: {records_inserted} records")
-                        
-                    except Exception as e:
-                        logger.error(f"Error processing {symbol} {timeframe}: {e}", exc_info=True)
-                        
-                        # Mark as failed
-                        session.execute(text("""
-                            UPDATE backfill_job_progress 
-                            SET status = 'failed', 
-                                error_message = :error,
-                                completed_at = NOW(),
-                                duration_seconds = EXTRACT(EPOCH FROM (NOW() - started_at))::INTEGER
-                            WHERE job_id = :job_id AND symbol = :symbol AND timeframe = :timeframe
-                        """), {
-                            "job_id": job_id_uuid,
-                            "symbol": symbol,
-                            "timeframe": timeframe,
-                            "error": str(e)
-                        })
-                        session.commit()
-                    
-                    finally:
-                        completed += 1
-                        # Update progress percentage
-                        progress_pct = int((completed / total_combinations) * 100)
-                        session.execute(text("""
-                            UPDATE backfill_jobs 
-                            SET progress_pct = :progress_pct
-                            WHERE id = :job_id
-                        """), {
-                            "job_id": job_id_uuid,
-                            "progress_pct": progress_pct
-                        })
-                        session.commit()
-            
-            # Mark job as completed
-            session.execute(text("""
-                UPDATE backfill_jobs 
-                SET status = 'completed', completed_at = NOW(), progress_pct = 100
-                WHERE id = :job_id
-            """), {"job_id": job_id_uuid})
-            session.commit()
-            
-            logger.info(f"Backfill job {job_id} completed successfully")
-            
-        except Exception as e:
-            logger.error(f"Critical error in backfill job {job_id}: {e}")
-            session.execute(text("""
-                UPDATE backfill_jobs 
-                SET status = 'failed', error_message = :error, completed_at = NOW()
-                WHERE id = :job_id
-            """), {
-                "job_id": job_id_uuid,
-                "error": str(e)
-            })
-            session.commit()
-        
-        finally:
-            session.close()
+import warnings
 
+warnings.warn(
+    "backfill_worker is deprecated. Use backfill_orchestrator instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
-# Global worker instance
-_backfill_worker = None
-
-
-def init_backfill_worker(db_service, polygon_service):
-    """Initialize the backfill worker."""
-    global _backfill_worker
-    _backfill_worker = BackfillWorker(db_service, polygon_service)
-    logger.info("Backfill worker initialized")
-
-
-def enqueue_backfill_job(job_id: str, symbols: List[str], 
-                        start_date: str, end_date: str, 
-                        timeframes: List[str]):
-    """Enqueue a backfill job for processing in background."""
-    global _backfill_worker
-    
-    if not _backfill_worker:
-        raise RuntimeError(
-            "Backfill worker not initialized. "
-            "The worker should be initialized during app startup via init_backfill_worker(). "
-            "If running with multiple workers (uvicorn --workers > 1), "
-            "each worker process needs its own initialization."
-        )
-    
-    # Schedule as a background task (non-blocking)
-    asyncio.create_task(
-        _backfill_worker.process_job(job_id, symbols, start_date, end_date, timeframes)
+# Placeholder - kept for compatibility only
+def init_backfill_worker(*args, **kwargs):
+    raise NotImplementedError(
+        "backfill_worker is deprecated. Use BackfillOrchestrator from "
+        "src.services.backfill_orchestrator instead."
     )
-    logger.info(f"Backfill job {job_id} enqueued")
+
+def enqueue_backfill_job(*args, **kwargs):
+    raise NotImplementedError(
+        "backfill_worker is deprecated. Use BackfillOrchestrator from "
+        "src.services.backfill_orchestrator instead."
+    )

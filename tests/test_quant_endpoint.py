@@ -65,6 +65,7 @@ class TestQuantFeatureEndpointParameters:
                 "volume": 1000000,
                 "return_1d": 0.005, "volatility_20": 0.15, "volatility_50": 0.14,
                 "atr": 1.5, "rolling_volume_20": 950000, "volume_ratio": 1.05,
+                "rolling_mean_10": 100.2, "rolling_slope_10": 0.045,
                 "structure_label": "bullish", "trend_direction": "up",
                 "volatility_regime": "medium", "trend_regime": "uptrend",
                 "compression_regime": "expanded", "features_computed_at": datetime(2024, 1, 1, 2, 0, 0)
@@ -164,6 +165,7 @@ class TestQuantFeatureEndpointResponse:
                 "volume": 1000000,
                 "return_1d": 0.005, "volatility_20": 0.15, "volatility_50": 0.14,
                 "atr": 1.5, "rolling_volume_20": 950000, "volume_ratio": 1.05,
+                "rolling_mean_10": 100.2, "rolling_slope_10": 0.045,
                 "structure_label": "bullish", "trend_direction": "up",
                 "volatility_regime": "medium", "trend_regime": "uptrend",
                 "compression_regime": "expanded", "features_computed_at": datetime(2024, 1, 1, 2, 0, 0)
@@ -209,6 +211,7 @@ class TestQuantFeatureEndpointResponse:
                 "volume": 1000000,
                 "return_1d": 0.005, "volatility_20": 0.15, "volatility_50": 0.14,
                 "atr": 1.5, "rolling_volume_20": 950000, "volume_ratio": 1.05,
+                "rolling_mean_10": 100.2, "rolling_slope_10": 0.045,
                 "structure_label": "bullish", "trend_direction": "up",
                 "volatility_regime": "medium", "trend_regime": "uptrend",
                 "compression_regime": "expanded", "features_computed_at": datetime(2024, 1, i, 2, 0, 0)
@@ -294,6 +297,7 @@ class TestQuantFeatureEndpointIntegration:
                 "volume": 1000000,
                 "return_1d": 0.005, "volatility_20": 0.15, "volatility_50": 0.14,
                 "atr": 1.5, "rolling_volume_20": 950000, "volume_ratio": 1.05,
+                "rolling_mean_10": 100.2, "rolling_slope_10": 0.045,
                 "structure_label": "bullish", "trend_direction": "up",
                 "volatility_regime": "medium", "trend_regime": "uptrend",
                 "compression_regime": "expanded", "features_computed_at": datetime(2024, 1, 1, 2, 0, 0)
@@ -304,6 +308,7 @@ class TestQuantFeatureEndpointIntegration:
                 "volume": 1100000,
                 "return_1d": 0.05, "volatility_20": 0.16, "volatility_50": 0.15,
                 "atr": 1.6, "rolling_volume_20": 1050000, "volume_ratio": 1.05,
+                "rolling_mean_10": 100.3, "rolling_slope_10": 0.048,
                 "structure_label": "bullish", "trend_direction": "up",
                 "volatility_regime": "medium", "trend_regime": "uptrend",
                 "compression_regime": "expanded", "features_computed_at": datetime(2024, 1, 31, 2, 0, 0)

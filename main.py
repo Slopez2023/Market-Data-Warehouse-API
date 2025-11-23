@@ -40,7 +40,7 @@ from src.services.performance_monitor import init_performance_monitor, get_perfo
 from src.services.auth import init_auth_service, get_auth_service
 from src.services.symbol_manager import init_symbol_manager, get_symbol_manager
 from src.services.migrations import run_migrations
-from src.services.backfill_worker import init_backfill_worker
+from src.services.backfill_orchestrator import init_backfill_orchestrator, get_backfill_orchestrator
 
 # Setup structured logging
 setup_structured_logging(config.log_level)
@@ -102,17 +102,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error("Failed to start scheduler", extra={"error": str(e)})
     
-    # Initialize Backfill Worker
+    # Initialize Backfill Orchestrator
     try:
-        if not scheduler.polygon_client:
-            logger.warning("Polygon API not available, backfill worker will not initialize")
-        else:
-            init_backfill_worker(db, scheduler.polygon_client)
-            app.state.backfill_worker_initialized = True
-            logger.info("Backfill worker initialized successfully")
+        init_backfill_orchestrator(config.database_url, config.polygon_api_key)
+        app.state.backfill_orchestrator_initialized = True
+        logger.info("Backfill orchestrator initialized successfully")
     except Exception as e:
-        app.state.backfill_worker_initialized = False
-        logger.error("Failed to initialize backfill worker", extra={"error": str(e), "type": type(e).__name__}, exc_info=True)
+        app.state.backfill_orchestrator_initialized = False
+        logger.error("Failed to initialize backfill orchestrator", extra={"error": str(e), "type": type(e).__name__}, exc_info=True)
     
     logger.info("App startup complete")
     yield
@@ -2220,60 +2217,78 @@ async def trigger_enrichment(
 
 
 @app.post("/api/v1/backfill")
-async def bulk_backfill(request: BackfillRequest = Body(...)):
+async def unified_backfill(request: BackfillRequest = Body(...)):
     """
-    Trigger backfill for multiple symbols (non-blocking, returns immediately).
-
+    Trigger unified backfill for symbols using master_backfill.py orchestrator.
+    
+    This endpoint uses the same orchestrator as the CLI (master_backfill.py),
+    ensuring all backfills have:
+    - Gap detection & retry logic
+    - Data validation & quality scoring
+    - Parallel processing with rate limiting
+    - Full audit trail
+    
     Request body (JSON):
         {
-            "symbols": ["AAPL", "GOOGL", ...],
-            "start_date": "YYYY-MM-DD",
-            "end_date": "YYYY-MM-DD",
-            "timeframes": ["1d", "1h", "5m"]
+            "symbols": ["AAPL", "GOOGL"],
+            "start_date": "YYYY-MM-DD" (optional, defaults to 365 days ago),
+            "end_date": "YYYY-MM-DD" (optional, defaults to today),
+            "timeframes": ["1d", "1h", "5m"] (optional, defaults to all configured)
         }
 
     Returns:
-        Job info with ID and status
+        Job info with ID and status. Check /api/v1/backfill/status/{job_id} for progress.
     """
     try:
-        from src.services import backfill_worker
-
-        # Initialize backfill worker if not already done (handles multi-worker scenarios)
-        if not backfill_worker._backfill_worker:
-            logger.info("Initializing backfill worker in request handler")
-            init_backfill_worker(db, scheduler.polygon_client)
-
-        # Create job ID
-        job_id = str(uuid.uuid4())
-
-        # Create job record in database
-        db.create_backfill_job(job_id, request.symbols, request.start_date, request.end_date, request.timeframes)
-
-        # Queue the backfill task (runs in background)
-        backfill_worker.enqueue_backfill_job(job_id, request.symbols, request.start_date, request.end_date, request.timeframes)
-
-        # Log the backfill request
-        logger.info(f"Backfill job created: {len(request.symbols)} symbols, {len(request.timeframes)} timeframes",
-        extra={
-        'job_id': job_id,
-        'symbol_count': len(request.symbols),
-        'date_range': f"{request.start_date} to {request.end_date}",
-        'timeframes': request.timeframes
-        })
-
+        # Get orchestrator
+        orchestrator = get_backfill_orchestrator()
+        
+        # Calculate days from start_date if provided, else use default 365
+        days = 365
+        if request.start_date:
+            from datetime import date
+            try:
+                start = datetime.strptime(request.start_date, "%Y-%m-%d").date()
+                end = datetime.strptime(request.end_date, "%Y-%m-%d").date() if request.end_date else date.today()
+                days = (end - start).days
+            except ValueError:
+                pass
+        
+        # Trigger backfill through orchestrator (runs master_backfill.py)
+        result = await orchestrator.trigger_backfill(
+            symbols=request.symbols if request.symbols else None,
+            timeframes=request.timeframes if request.timeframes else None,
+            days=days,
+            max_concurrent=3,
+            user_id=None  # Could be extracted from API key in future
+        )
+        
+        logger.info(
+            f"Backfill triggered: {len(request.symbols) if request.symbols else 'all'} symbols",
+            extra={
+                "job_id": result.get("job_id"),
+                "symbols": request.symbols,
+                "timeframes": request.timeframes
+            }
+        )
+        
         return {
-        'job_id': job_id,
-        'status': 'queued',
-        'symbols_count': len(request.symbols),
-        'symbols': request.symbols[:10] + (['...'] if len(request.symbols) > 10 else []),
-        'date_range': {'start': request.start_date, 'end': request.end_date},
-        'timeframes': request.timeframes,
-        'timestamp': datetime.utcnow().isoformat()
+            "job_id": result.get("job_id"),
+            "status": result.get("status"),
+            "symbols": request.symbols,
+            "timeframes": request.timeframes,
+            "message": "Backfill orchestrated via master_backfill.py (gap detection + validation enabled)",
+            "check_status": f"/api/v1/backfill/status/{result.get('job_id')}",
+            "timestamp": datetime.utcnow().isoformat()
         }
     
     except Exception as e:
-        logger.error(f"Error in bulk backfill: {e}", extra={'error': str(e), 'type': type(e).__name__}, exc_info=True)
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.error(
+            f"Unified backfill error: {e}",
+            extra={"error": str(e), "type": type(e).__name__},
+            exc_info=True
+        )
+        raise HTTPException(status_code=400, detail=f"Backfill error: {str(e)}")
 
 
 @app.get("/api/v1/backfill/status/{job_id}")
@@ -2746,6 +2761,7 @@ async def get_quant_features_endpoint(
     - Returns: return_1h, return_1d
     - Volatility: volatility_20, volatility_50, atr
     - Volume: rolling_volume_20, volume_ratio
+    - Trend: rolling_mean_10, rolling_slope_10
     - Structure: structure_label, trend_direction, hh, hl, lh, ll
     - Regimes: volatility_regime, trend_regime, compression_regime
     
@@ -2780,6 +2796,8 @@ async def get_quant_features_endpoint(
                     "atr": 2.34,
                     "rolling_volume_20": 48500000,
                     "volume_ratio": 1.08,
+                    "rolling_mean_10": 234.89,
+                    "rolling_slope_10": 0.0456,
                     "structure_label": "bullish",
                     "trend_direction": "up",
                     "volatility_regime": "medium",

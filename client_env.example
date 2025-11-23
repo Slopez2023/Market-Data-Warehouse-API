@@ -1,0 +1,12 @@
+# Market Data Client - Environment Configuration
+
+# API Configuration (Required)
+MARKET_DATA_API_URL=http://localhost:8000
+MARKET_DATA_API_KEY=mdw_2ed1a9e0944f8c1a17b8d59a49a87e29b3529fbbeadaf6b5d3ec960ca7fba19a
+
+# Request Configuration (Optional)
+MARKET_DATA_API_TIMEOUT=30
+MARKET_DATA_API_VERIFY_SSL=true
+
+# Logging (Optional)
+LOG_LEVEL=INFO

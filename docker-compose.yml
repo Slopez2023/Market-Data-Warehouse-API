@@ -47,6 +47,7 @@ services:
         condition: service_healthy
     volumes:
       - ./src:/app/src
+      - ./scripts:/app/scripts
       - ./dashboard:/app/dashboard
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import requests; requests.get('http://localhost:8000/health')\" || exit 1"]

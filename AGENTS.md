@@ -1,5 +1,20 @@
 # Agent Guidelines
 
+## Unified Backfill System (Current)
+
+**CRITICAL: All backfills (website + CLI) now use master_backfill.py orchestrator**
+
+- `BackfillOrchestrator` (`src/services/backfill_orchestrator.py`) wraps master_backfill.py
+- Ensures gap detection, validation, and retry logic for ALL backfills
+- Deprecated `backfill_worker.py` (raises NotImplementedError with migration instructions)
+- Website endpoint: `POST /api/v1/backfill` → calls orchestrator → runs master_backfill.py
+- CLI: `python master_backfill.py` → runs directly
+- Both paths use identical logic after master_backfill.py entry point
+- Audit logging: `backfill_audit_log` table tracks who triggered what, when, results
+- See `UNIFIED_BACKFILL_IMPLEMENTATION.md` for full details
+
+**Why this matters:** Prevents accidental use of simplified backfill logic. No more divergent code paths.
+
 ## Multi-Source Data Strategy
 
 **Two new sources (fallback):**

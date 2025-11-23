@@ -77,6 +77,7 @@ class TestQuantFeatureEngineBasics:
             "log_return", "return_1h", "return_1d",
             "volatility_20", "volatility_50", "atr",
             "rolling_volume_20", "volume_ratio",
+            "rolling_mean_10", "rolling_slope_10",
             "hh", "hl", "lh", "ll",
             "trend_direction", "structure_label",
             "volatility_regime", "trend_regime", "compression_regime"
